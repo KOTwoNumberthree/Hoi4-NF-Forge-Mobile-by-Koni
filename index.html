@@ -1,0 +1,2410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Focus Forge Mobile — HOI4 NFツリーエディタ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --bg:#11151b; --bg-alt:#161b22; --panel:#1a212b; --panel-2:#1f2733;
+  --line:#2a3341; --line-soft:#232b37; --ink:#d9dee6; --ink-dim:#8993a3; --ink-faint:#5c6675;
+  --brass:#c9973b; --brass-dim:#8a6a2e; --brass-bright:#e6b95c;
+  --teal:#5f9c85; --red:#c1543f; --red-bright:#e2694f; --blue:#5c86b0;
+  --radius:8px;
+  --font-head:'Oswald',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-l:env(safe-area-inset-left,0px); --safe-r:env(safe-area-inset-right,0px);
+  --app-vh: 100dvh; /* refined by JS via visualViewport for keyboard-aware sheets */
+  --tap-min: 44px;
+  box-sizing:border-box;
+}
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; margin:0; overscroll-behavior:none; }
+body{
+  font-family:var(--font-body); background:var(--bg); color:var(--ink);
+  height:100dvh; height:var(--app-vh, 100dvh);
+  overflow:hidden; font-size:14px; -webkit-font-smoothing:antialiased;
+  touch-action:none; /* the canvas owns all gesture handling */
+}
+button,input,select,textarea{ font-family:inherit; color:inherit; }
+::selection{ background:var(--brass); color:#1a1408; }
+
+#app{ position:fixed; inset:0; display:flex; flex-direction:column; height:100dvh; height:var(--app-vh,100dvh); }
+
+/* ---------- Top bar ---------- */
+#topbar{
+  flex:0 0 auto; display:flex; align-items:center; gap:4px;
+  padding:calc(var(--safe-t) + 8px) calc(var(--safe-r) + 8px) 8px calc(var(--safe-l) + 8px);
+  background:var(--panel); border-bottom:1px solid var(--line); position:relative; z-index:20;
+}
+.icon-btn{
+  width:var(--tap-min); height:var(--tap-min); min-width:var(--tap-min); min-height:var(--tap-min);
+  display:flex; align-items:center; justify-content:center; border-radius:var(--radius);
+  background:transparent; border:1px solid transparent; color:var(--ink-dim); font-size:19px; flex:0 0 auto;
+}
+.icon-btn:active{ background:var(--panel-2); border-color:var(--line); }
+.icon-btn.brass{ color:var(--brass-bright); }
+.icon-btn[disabled]{ opacity:.3; }
+#topbar .title{
+  flex:1; min-width:0; font-family:var(--font-head); font-size:14.5px; font-weight:500;
+  color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center; padding:0 4px;
+}
+#topbar .title .sub{ display:block; font-size:9.5px; color:var(--ink-faint); font-family:var(--font-body); font-weight:400; letter-spacing:.03em; }
+
+/* ---------- Canvas ---------- */
+#canvaswrap{
+  position:relative; flex:1 1 auto; min-height:0; overflow:hidden; touch-action:none;
+  background: radial-gradient(circle at 1px 1px, var(--line-soft) 1px, transparent 1px) 0 0/24px 24px, var(--bg);
+}
+#world{ position:absolute; top:0; left:0; transform-origin:0 0; will-change:transform; }
+#connlayer{ position:absolute; top:0; left:0; overflow:visible; pointer-events:none; }
+#nodelayer{ position:absolute; top:0; left:0; }
+
+.mnode{
+  position:absolute; width:152px; min-height:92px;
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  border:1.5px solid var(--line); border-radius:10px; padding:10px 11px 11px;
+  user-select:none; -webkit-user-select:none;
+  box-shadow:0 2px 0 rgba(0,0,0,.3); transition:box-shadow .12s, transform .12s;
+}
+.mnode.sel{ border-color:var(--brass); box-shadow:0 0 0 3px rgba(201,151,59,.3); }
+.mnode.moving{ box-shadow:0 10px 28px rgba(0,0,0,.5); transform:scale(1.04); z-index:60; border-color:var(--brass-bright); }
+.mnode.err{ border-color:var(--red); }
+.mnode.warn{ border-left:4px solid var(--brass); }
+.mnode .mn-top{ display:flex; align-items:center; gap:7px; }
+.mnode .mn-icon{ width:30px; height:30px; border-radius:6px; background:var(--bg-alt); border:1px solid var(--line);
+  display:flex; align-items:center; justify-content:center; flex:0 0 auto; overflow:hidden; }
+.mnode .mn-icon img{ width:100%; height:100%; object-fit:contain; }
+.mnode .mn-icon .ph{ font-size:11px; color:var(--ink-faint); }
+.mnode .mn-branchdot{ width:8px; height:8px; border-radius:50%; margin-left:auto; flex:0 0 auto; }
+.mnode .mn-title{ font-size:13px; font-weight:600; line-height:1.28; margin-top:7px; color:var(--ink);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.mnode .mn-id{ font-family:var(--font-mono); font-size:9px; color:var(--ink-faint); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mnode .mn-bottom{ display:flex; align-items:center; justify-content:space-between; margin-top:7px; }
+.mnode .mn-cost{ font-family:var(--font-mono); font-size:11px; color:var(--brass-bright); }
+.mnode .mn-badges{ display:flex; gap:4px; }
+.mnode .badge{ width:7px; height:7px; border-radius:50%; }
+.badge.b-err{ background:var(--red-bright); } .badge.b-warn{ background:var(--brass); }
+.badge.b-mutex{ background:transparent; border:1px solid var(--red-bright); } .badge.b-code{ background:var(--blue); }
+
+#emptyhint{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
+  text-align:center; color:var(--ink-faint); font-size:13px; line-height:2.1; padding:0 40px; }
+
+/* ---------- FAB ---------- */
+#fab{
+  position:absolute; right:calc(var(--safe-r) + 16px); bottom:calc(var(--safe-b) + 16px);
+  width:58px; height:58px; border-radius:50%; background:var(--brass); color:#1a1408; border:none;
+  font-size:28px; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 18px rgba(0,0,0,.4);
+  z-index:15;
+}
+#fab:active{ background:var(--brass-bright); transform:scale(.96); }
+#fab.raised{ bottom:calc(var(--ctxbar-h, 0px) + var(--safe-b) + 16px); }
+
+/* ---------- HUD (zoom controls) ---------- */
+#hud{ position:absolute; left:calc(var(--safe-l) + 10px); bottom:calc(var(--safe-b) + 16px); display:flex; flex-direction:column; gap:6px; z-index:15; }
+#hud .hud-btn{ width:42px; height:42px; border-radius:10px; background:var(--panel); border:1px solid var(--line); color:var(--ink-dim);
+  display:flex; align-items:center; justify-content:center; font-size:16px; }
+#hud .hud-btn:active{ color:var(--ink); border-color:var(--ink-faint); }
+
+/* ---------- Contextual bottom action bar (appears when a node is selected) ---------- */
+#ctxbar{
+  position:absolute; left:0; right:0; bottom:0; z-index:16;
+  background:var(--panel); border-top:1px solid var(--line);
+  padding:8px calc(var(--safe-r) + 6px) calc(var(--safe-b) + 8px) calc(var(--safe-l) + 6px);
+  display:flex; align-items:center; gap:4px;
+  transform:translateY(100%); transition:transform .16s ease;
+}
+#ctxbar.show{ transform:translateY(0); }
+#ctxbar .ctx-info{ flex:1; min-width:0; padding:0 6px; }
+#ctxbar .ctx-info .cn{ font-family:var(--font-head); font-size:12.5px; color:var(--brass-bright); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#ctxbar .ctx-info .ci{ font-family:var(--font-mono); font-size:9.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#ctxbar .ctx-btn{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  width:52px; height:52px; border-radius:10px; background:transparent; border:none; color:var(--ink-dim); font-size:18px; flex:0 0 auto; }
+#ctxbar .ctx-btn span{ font-size:8.5px; font-family:var(--font-body); color:var(--ink-faint); }
+#ctxbar .ctx-btn:active{ background:var(--panel-2); }
+#ctxbar .ctx-btn.danger{ color:var(--red-bright); }
+#ctxbar .ctx-btn.danger span{ color:var(--red-bright); }
+
+/* ---------- Bottom sheets ---------- */
+.sheet-scrim{ position:fixed; inset:0; background:rgba(6,8,11,.55); z-index:50; opacity:0; pointer-events:none; transition:opacity .18s; }
+.sheet-scrim.show{ opacity:1; pointer-events:auto; }
+.sheet{
+  position:fixed; left:0; right:0; bottom:0; z-index:51; background:var(--panel);
+  border-radius:16px 16px 0 0; border-top:1px solid var(--line);
+  max-height:88dvh; max-height:calc(var(--app-vh, 100dvh) * 0.88);
+  display:flex; flex-direction:column; transform:translateY(100%); transition:transform .2s ease;
+  box-shadow:0 -10px 30px rgba(0,0,0,.5);
+}
+.sheet.show{ transform:translateY(0); }
+.sheet.fullscreen{ top:var(--safe-t); max-height:none; height:calc(var(--app-vh, 100dvh) - var(--safe-t)); border-radius:14px 14px 0 0; }
+.sheet-handle{ width:36px; height:4px; background:var(--line); border-radius:2px; margin:8px auto 2px; flex:0 0 auto; }
+.sheet-header{
+  flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:8px 6px 10px calc(var(--safe-l) + 10px);
+  padding-right:calc(var(--safe-r) + 6px); border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:2;
+}
+.sheet-header h3{ flex:1; margin:0; font-family:var(--font-head); font-size:14.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sheet-header .save-btn{ background:var(--brass-dim); color:#1a1408; border:none; border-radius:8px; padding:0 16px; height:38px; font-weight:600; font-size:13px; }
+.sheet-header .save-btn:active{ background:var(--brass); }
+.sheet-body{ flex:1; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; padding:4px 14px calc(var(--safe-b) + 24px); }
+.sheet-body.no-pad{ padding:0; }
+
+/* ---------- Form elements (large, touch-friendly) ---------- */
+.m-section{ margin:16px 0; }
+.m-section h4{ margin:0 0 8px; font-family:var(--font-head); font-size:11px; letter-spacing:.07em; color:var(--ink-faint); font-weight:500; text-transform:uppercase; }
+.m-field{ margin-bottom:12px; }
+.m-field label{ display:block; font-size:11.5px; color:var(--ink-faint); margin-bottom:5px; }
+.m-field input[type=text], .m-field input[type=number], .m-field select, .m-field textarea{
+  width:100%; background:var(--bg-alt); border:1px solid var(--line); border-radius:8px;
+  padding:12px 12px; color:var(--ink); font-size:15px; min-height:var(--tap-min);
+}
+.m-field textarea{ font-family:var(--font-mono); font-size:12.5px; min-height:80px; line-height:1.5; }
+.m-field input:focus, .m-field select:focus, .m-field textarea:focus{ outline:2px solid var(--brass-dim); outline-offset:-1px; }
+.m-row{ display:flex; gap:10px; }
+.m-row .m-field{ flex:1; min-width:0; }
+.m-btn{ min-height:var(--tap-min); border-radius:8px; background:var(--panel-2); border:1px solid var(--line); color:var(--ink);
+  padding:0 16px; font-size:13.5px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.m-btn:active{ border-color:var(--ink-faint); background:var(--bg-alt); }
+.m-btn.primary{ background:var(--brass-dim); border-color:var(--brass-dim); color:#1a1408; font-weight:600; }
+.m-btn.primary:active{ background:var(--brass); }
+.m-btn.danger{ border-color:var(--red); color:var(--red-bright); }
+.m-btn.full{ width:100%; }
+.m-chip{ display:inline-flex; align-items:center; gap:8px; background:var(--bg-alt); border:1px solid var(--line); border-radius:20px;
+  padding:8px 8px 8px 14px; font-size:13px; font-family:var(--font-mono); margin:0 6px 8px 0; }
+.m-chip .x{ width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--ink-faint); font-size:14px; }
+.m-chip .x:active{ background:var(--red); color:#fff; }
+.m-chip.mx{ border-color:rgba(193,84,63,.5); }
+.chip-wrap{ display:flex; flex-wrap:wrap; }
+.m-list-row{ display:flex; align-items:center; gap:10px; padding:12px 4px; border-bottom:1px solid var(--line-soft); min-height:var(--tap-min); }
+.m-list-row .swatch{ width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
+.m-list-row .lbl{ flex:1; font-size:14px; }
+.m-list-row .cnt{ font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); }
+.m-note{ font-size:11px; color:var(--ink-faint); line-height:1.7; margin:4px 0 0; }
+.status-item{ display:flex; gap:8px; align-items:flex-start; font-size:12.5px; padding:9px 10px; border-radius:8px; background:var(--bg-alt); margin-bottom:6px; }
+.status-item.err{ border-left:3px solid var(--red-bright); } .status-item.warn{ border-left:3px solid var(--brass); } .status-item.ok{ border-left:3px solid var(--teal); }
+.menu-list .m-list-row{ min-height:56px; }
+.menu-list .icon{ width:26px; text-align:center; font-size:18px; color:var(--brass-bright); flex:0 0 auto; }
+.asset-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(74px,1fr)); gap:10px; padding:4px 0; }
+.asset-tile{ border:1px solid var(--line); border-radius:8px; background:var(--bg-alt); padding:6px; text-align:center; min-height:64px; }
+.asset-tile.sel{ border-color:var(--brass); background:rgba(201,151,59,.1); }
+.asset-tile img{ width:100%; height:34px; object-fit:contain; display:block; margin-bottom:4px; }
+.asset-tile .an{ font-size:8.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#searchinput{ width:100%; background:var(--bg-alt); border:1px solid var(--line); border-radius:10px; padding:13px 14px; color:var(--ink); font-size:15px; }
+.search-result{ padding:12px 6px; border-bottom:1px solid var(--line-soft); min-height:var(--tap-min); }
+.search-result .sid{ font-family:var(--font-mono); font-size:10.5px; color:var(--brass-bright); }
+.search-result .sname{ font-size:14px; color:var(--ink); margin-top:2px; }
+.search-result .sctx{ font-size:11px; color:var(--ink-faint); margin-top:2px; }
+.coverage-row{ display:flex; justify-content:space-between; font-size:12.5px; color:var(--ink-dim); padding:6px 2px; }
+.pill{ display:inline-flex; align-items:center; gap:5px; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:7px 13px; font-size:12px; color:var(--ink-dim); }
+.pill.on{ border-color:var(--brass-dim); color:var(--brass-bright); background:rgba(201,151,59,.1); }
+.import-report{ background:var(--bg-alt); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:8px; font-size:12px; }
+.import-report .fn{ font-family:var(--font-mono); color:var(--brass-bright); margin-bottom:4px; }
+
+.hidden{ display:none !important; }
+::-webkit-scrollbar{ width:0; height:0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar"></div>
+  <div id="canvaswrap">
+    <div id="world">
+      <svg id="connlayer" width="1" height="1"></svg>
+      <div id="nodelayer"></div>
+    </div>
+    <div id="emptyhint"></div>
+    <div id="hud"></div>
+    <button id="fab" aria-label="NFを追加">＋</button>
+    <div id="ctxbar"></div>
+  </div>
+</div>
+
+<div class="sheet-scrim" id="scrim"></div>
+<div class="sheet" id="menuSheet"></div>
+<div class="sheet" id="searchSheet"></div>
+<div class="sheet fullscreen" id="editSheet"></div>
+<div class="sheet" id="branchSheet"></div>
+<div class="sheet" id="locSheet"></div>
+<div class="sheet" id="assetSheet"></div>
+<div class="sheet" id="pickerSheet"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   Focus Forge Mobile — touch-first HOI4 NF tree editor.
+
+   The data model, HOI4 code generator, HOI4 script parser, validator,
+   layout/position-resolution, ID-integrity helpers, cost math and the
+   orthogonal (H/V-only) connector path builder below are copied VERBATIM
+   from the desktop build (hoi4-focus-forge.html) — same functions, same
+   behaviour, same JSON shape — so a project saved on desktop opens
+   identically here, and vice versa. Only the rendering/interaction layer
+   beneath this comment block is mobile-specific.
+   ========================================================================= */
+
+/* =========================================================================
+   0. Small utilities
+   ========================================================================= */
+function el(tag, attrs, children){
+  const e = document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k === "class") e.className = attrs[k];
+    else if(k === "style") e.style.cssText = attrs[k];
+    else if(k.startsWith("on") && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
+    else if(k === "html") e.innerHTML = attrs[k];
+    else if(attrs[k] === true) e.setAttribute(k, "");
+    else if(attrs[k] !== false && attrs[k] != null) e.setAttribute(k, attrs[k]);
+  }
+  if(children) for(const c of [].concat(children)){
+    if(c == null) continue;
+    e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  }
+  return e;
+}
+// SVG elements MUST be created in the SVG namespace (createElementNS), not with
+// document.createElement — an <svg><path> built via createElement is just an
+// inert, invisible HTML element once attached to the SVG tree. This is the
+// dedicated constructor for every element that lives inside #connlayer.
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, children){
+  const e = document.createElementNS(SVG_NS, tag);
+  if(attrs) for(const k in attrs){
+    if(k === "class") e.setAttribute("class", attrs[k]);
+    else if(k === "style") e.style.cssText = attrs[k];
+    else if(k.startsWith("on") && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
+    else if(attrs[k] === true) e.setAttribute(k, "");
+    else if(attrs[k] !== false && attrs[k] != null) e.setAttribute(k, attrs[k]);
+  }
+  if(children) for(const c of [].concat(children)){
+    if(c == null) continue;
+    e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  }
+  return e;
+}
+function clear(node){ while(node.firstChild) node.removeChild(node.firstChild); }
+function uid(prefix){ return (prefix||"id") + "_" + Math.random().toString(36).slice(2,8) + Date.now().toString(36).slice(-4); }
+function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+function escHtml(s){ return String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function debounce(fn, ms){ let t; return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), ms); }; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function toSafeId(s){
+  s = (s||"").toUpperCase().trim().replace(/[^A-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if(!/^[A-Z_]/.test(s)) s = "F_" + s;
+  return s || "FOCUS";
+}
+function nowStamp(){ const d = new Date(); return d.toISOString().replace("T"," ").slice(0,19); }
+
+/* =========================================================================
+   1. Data model — defaults & seed project
+   ========================================================================= */
+const BRANCH_COLORS = ["#c9973b","#5f9c85","#5c86b0","#a36bd6","#c1543f","#6bb0c9","#b0955c","#7f8fa6"];
+
+const BUILTIN_ICONS = [
+  "GFX_goal_generic_political_pressure","GFX_goal_generic_propaganda","GFX_goal_generic_demand_territory",
+  "GFX_goal_generic_industry","GFX_goal_generic_production","GFX_goal_generic_scientist","GFX_goal_generic_research",
+  "GFX_goal_generic_military_industry","GFX_goal_generic_mobilize_army","GFX_goal_generic_more_territorial_claims",
+  "GFX_goal_generic_national_unity","GFX_goal_generic_infantry_manuals","GFX_goal_generic_army_effort",
+  "GFX_goal_generic_navy_effort","GFX_goal_generic_air_effort","GFX_goal_generic_allies_build_infantry",
+  "GFX_goal_generic_construct_infrastructure","GFX_goal_generic_construct_military_factory",
+  "GFX_goal_generic_intelligence_agency","GFX_goal_generic_major_war","GFX_goal_generic_position_army",
+  "GFX_goal_generic_position_navy","GFX_goal_generic_position_air","GFX_goal_generic_anschluss",
+  "GFX_goal_generic_anti_air","GFX_goal_generic_artillery","GFX_goal_generic_tank_manuals",
+  "GFX_goal_generic_flag_purchase","GFX_goal_generic_national_focus","GFX_goal_generic_united_front",
+  "GFX_goal_generic_dam","GFX_goal_generic_missile_defense","GFX_goal_generic_nuclear_power",
+];
+
+function makeEmptyProject(){
+  return {
+    formatVersion: 1,
+    meta: { name: "新しいMOD", author: "", createdAt: Date.now() },
+    focusTree: {
+      id: "my_focus_tree",
+      country: "",
+      default: true,
+      resetOnCivilwar: true,
+      extraCode: "",
+      focuses: [],
+      branches: [],
+      mutexGroups: [],
+    },
+    localisation: {
+      languages: [
+        { code: "japanese", label: "日本語" },
+        { code: "english", label: "English" },
+      ],
+      entries: {},
+    },
+    assets: { icons: [] },
+    settings: { gridX: 90, gridY: 118 },
+  };
+}
+
+function makeFocus(overrides){
+  return Object.assign({
+    id: uid("FOCUS").toUpperCase(),
+    icon: "GFX_goal_generic_national_focus",
+    x: 0, y: 0,
+    cost: 10,
+    relativePositionId: "",
+    branchId: "",
+    prerequisites: [],       // array of arrays (OR of AND) of focus ids
+    mutexIds: [],            // convenience mirror; canonical source is mutexGroups
+    availableCode: "",
+    bypassCode: "",
+    cancelCode: "",
+    completionRewardCode: "",
+    aiWillDoCode: "",
+    willLeadToWarWithCode: "",
+    searchFiltersCode: "",
+    extraFields: [],         // [{key, raw, isBlock}] unknown top-level fields preserved verbatim
+    notes: "",
+  }, overrides || {});
+}
+
+function seedProject(){
+  const p = makeEmptyProject();
+  p.meta.name = "サンプル：再建計画";
+  p.focusTree.id = "sample_focus_tree";
+  const b1 = { id: uid("branch"), name: "政治", color: BRANCH_COLORS[0], collapsed:false, hidden:false, description:"内政・政治改革" };
+  const b2 = { id: uid("branch"), name: "経済", color: BRANCH_COLORS[1], collapsed:false, hidden:false, description:"産業と経済の再建" };
+  p.focusTree.branches.push(b1, b2);
+
+  const f1 = makeFocus({ id:"NF_national_reconstruction", icon:"GFX_goal_generic_national_focus", x:0, y:0, cost:70, branchId:b1.id,
+    completionRewardCode:"add_political_power = 50\nadd_stability = 0.05" });
+  const f2 = makeFocus({ id:"NF_industrial_recovery", icon:"GFX_goal_generic_industry", x:0, y:1, cost:70, branchId:b2.id,
+    prerequisites:[["NF_national_reconstruction"]],
+    completionRewardCode:"add_ideas = infrastructure_boom" });
+  const f3 = makeFocus({ id:"NF_market_reform", icon:"GFX_goal_generic_production", x:-1, y:2, cost:100, branchId:b2.id,
+    prerequisites:[["NF_industrial_recovery"]],
+    completionRewardCode:"add_ideas = market_economy" });
+  const f4 = makeFocus({ id:"NF_state_planning", icon:"GFX_goal_generic_national_unity", x:1, y:2, cost:100, branchId:b2.id,
+    prerequisites:[["NF_industrial_recovery"]],
+    completionRewardCode:"add_ideas = five_year_plan" });
+  p.focusTree.focuses.push(f1, f2, f3, f4);
+  p.focusTree.mutexGroups.push({ id: uid("mutex"), focuses:[f3.id, f4.id] });
+
+  p.localisation.entries[f1.id] = { japanese:{name:"国家再建", desc:"荒廃した国家機構を立て直す。"}, english:{name:"National Reconstruction", desc:"Rebuild the shattered machinery of the state."} };
+  p.localisation.entries[f2.id] = { japanese:{name:"産業復興", desc:"戦火で失われた産業基盤を復旧する。"}, english:{name:"Industrial Recovery", desc:"Restore the industrial base lost to war."} };
+  p.localisation.entries[f3.id] = { japanese:{name:"市場改革", desc:"市場経済への移行を進める。"}, english:{name:"Market Reform", desc:"Push the transition to a market economy."} };
+  p.localisation.entries[f4.id] = { japanese:{name:"国家計画経済", desc:"中央集権的な計画経済を敷く。"}, english:{name:"State Planning", desc:"Institute a centrally planned economy."} };
+  return p;
+}
+
+/* =========================================================================
+   2. Global state
+   ========================================================================= */
+const state = {
+  project: null,
+  selection: new Set(),     // selected focus ids (mobile keeps this to 0 or 1 for a simple, unambiguous UI)
+  activeFocusId: null,      // focus currently shown in the contextual bar / edit sheet
+  camera: { x: 80, y: 40, zoom: 1 },
+  ui: {
+    previewMode: false,
+    hiddenBranches: new Set(),
+    activeBranchFilter: null,
+    codeLang: "japanese",   // same field name as the desktop build: "which language is currently displayed"
+  },
+  history: { undo: [], redo: [] },
+  ready: false,
+};
+
+function ft(){ return state.project.focusTree; }
+function loc(){ return state.project.localisation; }
+function focusById(id){ return ft().focuses.find(f => f.id === id); }
+function branchById(id){ return ft().branches.find(b => b.id === id); }
+
+/* -------- History (snapshot based) -------- */
+const HISTORY_LIMIT = 100;
+function snapshot(){ return JSON.stringify(state.project); }
+function pushHistory(){
+  if(!state.project) return;
+  state.history.undo.push(snapshot());
+  if(state.history.undo.length > HISTORY_LIMIT) state.history.undo.shift();
+  state.history.redo.length = 0;
+}
+function commit(label, mutator){
+  pushHistory();
+  mutator();
+  onProjectChanged(label);
+}
+function undo(){
+  if(!state.history.undo.length) return;
+  state.history.redo.push(snapshot());
+  const s = state.history.undo.pop();
+  state.project = JSON.parse(s);
+  sanitizeSelection();
+  onProjectChanged("undo", true);
+}
+function redo(){
+  if(!state.history.redo.length) return;
+  state.history.undo.push(snapshot());
+  const s = state.history.redo.pop();
+  state.project = JSON.parse(s);
+  sanitizeSelection();
+  onProjectChanged("redo", true);
+}
+function sanitizeSelection(){
+  const ids = new Set(ft().focuses.map(f=>f.id));
+  for(const id of Array.from(state.selection)) if(!ids.has(id)) state.selection.delete(id);
+  if(state.activeFocusId && !ids.has(state.activeFocusId)) state.activeFocusId = [...state.selection][0] || null;
+}
+
+/* =========================================================================
+   3. HOI4 code generator
+   ========================================================================= */
+function q(s){ return '"' + String(s==null?"":s).replace(/"/g,'\\"') + '"'; }
+function indentBlock(code, spaces){
+  const pad = " ".repeat(spaces);
+  return String(code||"").split("\n").map(l => l.trim()===""? "" : pad+l).join("\n");
+}
+function mutexPartnersOf(focusId){
+  return mutexPartnersIn(ft(), focusId);
+}
+function mutexPartnersIn(tree, focusId){
+  const set = new Set();
+  for(const g of tree.mutexGroups){
+    if(g.focuses.includes(focusId)) for(const o of g.focuses) if(o!==focusId) set.add(o);
+  }
+  return [...set];
+}
+function generateFocusCode(f, tree){
+  const L = [];
+  L.push("    focus = {");
+  L.push(`        id = ${f.id}`);
+  L.push(`        icon = ${f.icon || "GFX_goal_generic_national_focus"}`);
+  if(f.relativePositionId){
+    L.push(`        x = ${f.x}`);
+    L.push(`        y = ${f.y}`);
+    L.push(`        relative_position_id = ${f.relativePositionId}`);
+  } else {
+    L.push(`        x = ${f.x}`);
+    L.push(`        y = ${f.y}`);
+  }
+  L.push(`        cost = ${f.cost}`);
+  for(const group of f.prerequisites){
+    if(!group.length) continue;
+    L.push("        prerequisite = { " + group.map(id=>`focus = ${id}`).join(" ") + " }");
+  }
+  const partners = mutexPartnersIn(tree, f.id);
+  if(partners.length){
+    L.push("        mutually_exclusive = { " + partners.map(id=>`focus = ${id}`).join(" ") + " }");
+  }
+  if(f.availableCode.trim()){
+    L.push("        available = {");
+    L.push(indentBlock(f.availableCode, 12));
+    L.push("        }");
+  }
+  if(f.bypassCode.trim()){
+    L.push("        bypass = {");
+    L.push(indentBlock(f.bypassCode, 12));
+    L.push("        }");
+  }
+  if(f.cancelCode.trim()){
+    L.push("        cancel = {");
+    L.push(indentBlock(f.cancelCode, 12));
+    L.push("        }");
+  }
+  if(f.searchFiltersCode.trim()){
+    L.push("        search_filters = { " + f.searchFiltersCode.trim() + " }");
+  }
+  L.push("        completion_reward = {");
+  if(f.completionRewardCode.trim()) L.push(indentBlock(f.completionRewardCode, 12));
+  L.push("        }");
+  if(f.aiWillDoCode.trim()){
+    L.push("        ai_will_do = {");
+    L.push(indentBlock(f.aiWillDoCode, 12));
+    L.push("        }");
+  }
+  if(f.willLeadToWarWithCode.trim()){
+    L.push("        will_lead_to_war_with = { " + f.willLeadToWarWithCode.trim() + " }");
+  }
+  for(const ex of (f.extraFields||[])){
+    if(ex.isBlock){
+      L.push(`        ${ex.key} = {`);
+      L.push(indentBlock(ex.raw, 12));
+      L.push("        }");
+    } else {
+      L.push(`        ${ex.key} = ${ex.raw}`);
+    }
+  }
+  L.push("    }");
+  return L.join("\n");
+}
+function generateFocusTreeCode(project){
+  const tree = project.focusTree;
+  const L = [];
+  L.push("focus_tree = {");
+  L.push(`    id = ${tree.id}`);
+  if(tree.country && tree.country.trim()){
+    L.push("    country = {");
+    L.push(`        factor = 1`);
+    L.push("        modifier = {");
+    L.push(`            add = 10`);
+    L.push(`            tag = ${tree.country.trim()}`);
+    L.push("        }");
+    L.push("    }");
+  }
+  if(tree.default) L.push("    default = no");
+  if(tree.resetOnCivilwar === false) L.push("    reset_on_civilwar = no");
+  if(tree.extraCode && tree.extraCode.trim()){
+    L.push(indentBlock(tree.extraCode, 4));
+  }
+  L.push("");
+  for(const f of tree.focuses){
+    L.push(generateFocusCode(f, tree));
+    L.push("");
+  }
+  L.push("}");
+  return L.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+function generateLocalisationCode(project, langCode){
+  const L = [];
+  L.push(`l_${langCode === "english" ? "english" : (project.localisation.languages.find(l=>l.code===langCode)||{}).pdxKey || langCode}:`);
+  L.push(` ${project.focusTree.id}_name:0 ${q(project.meta.name || project.focusTree.id)}`);
+  for(const f of project.focusTree.focuses){
+    const e = (project.localisation.entries[f.id] || {})[langCode] || {};
+    L.push(` ${f.id}:0 ${q(e.name || f.id)}`);
+    L.push(` ${f.id}_desc:0 ${q(e.desc || "")}`);
+  }
+  return L.join("\n");
+}
+function pdxLangKey(code){
+  const known = { japanese:"japanese", english:"english", german:"german", french:"french", spanish:"spanish",
+    russian:"russian", polish:"polish", braz_por:"braz_por", simp_chinese:"simp_chinese" };
+  return known[code] || code;
+}
+function generateLocalisationCodeAll(project){
+  const out = {};
+  for(const lang of project.localisation.languages){
+    const L = [];
+    L.push(`l_${pdxLangKey(lang.code)}:`);
+    for(const f of project.focusTree.focuses){
+      const e = (project.localisation.entries[f.id] || {})[lang.code] || {};
+      L.push(` ${f.id}:0 ${q(e.name || f.id)}`);
+      L.push(` ${f.id}_desc:0 ${q(e.desc || "")}`);
+    }
+    out[lang.code] = L.join("\n");
+  }
+  return out;
+}
+
+/* =========================================================================
+   4. HOI4 script parser (generic brace-matching tokenizer)
+   Preserves unknown fields verbatim so future Effects/Triggers survive.
+   ========================================================================= */
+function splitEntries(text){
+  const entries = [];
+  let i = 0; const n = text.length;
+  function skipWs(){
+    while(i < n){
+      const c = text[i];
+      if(c === "#"){ while(i<n && text[i] !== "\n") i++; continue; }
+      if(/\s/.test(c)){ i++; continue; }
+      break;
+    }
+  }
+  while(i < n){
+    skipWs();
+    if(i >= n) break;
+    const keyStart = i;
+    while(i < n && !/[\s={}]/.test(text[i])) i++;
+    let key = text.slice(keyStart, i);
+    if(!key){ i++; continue; }
+    skipWs();
+    if(text[i] !== "="){
+      // bare token (e.g. inside a plain list) — record as bare value
+      entries.push({ key: null, raw: key, isBlock:false, bare:true });
+      continue;
+    }
+    i++; // consume '='
+    skipWs();
+    if(text[i] === "{"){
+      let depth = 1, j = i+1, start = j, inStr = false;
+      while(j < n && depth > 0){
+        const c = text[j];
+        if(c === '"'){ inStr = !inStr; j++; continue; }
+        if(!inStr){
+          if(c === "#"){ while(j<n && text[j] !== "\n") j++; continue; }
+          if(c === "{"){ depth++; }
+          else if(c === "}"){ depth--; if(depth===0){ break; } }
+        }
+        j++;
+      }
+      const raw = text.slice(start, j);
+      entries.push({ key, raw, isBlock:true });
+      i = j+1;
+    } else if(text[i] === '"'){
+      let j = i+1;
+      while(j<n && text[j] !== '"') j++;
+      entries.push({ key, raw: text.slice(i+1, j), isBlock:false, quoted:true });
+      i = j+1;
+    } else {
+      let start = i;
+      while(i<n && !/[\s{}]/.test(text[i])) i++;
+      entries.push({ key, raw: text.slice(start, i), isBlock:false });
+    }
+  }
+  return entries;
+}
+
+const KNOWN_FOCUS_FREE_FIELDS = {
+  available:"availableCode", bypass:"bypassCode", cancel:"cancelCode",
+  completion_reward:"completionRewardCode", ai_will_do:"aiWillDoCode",
+};
+const KNOWN_FOCUS_STRUCT_FIELDS = new Set([
+  "id","icon","x","y","cost","relative_position_id","prerequisite","mutually_exclusive",
+  "available","bypass","cancel","completion_reward","ai_will_do","will_lead_to_war_with","search_filters",
+]);
+
+function parseFocusEntry(raw, warnings, lineHint){
+  const entries = splitEntries(raw);
+  const f = makeFocus({});
+  f.mutexIdsLocal = []; // temp holder resolved later into mutexGroups
+  for(const e of entries){
+    if(!e.key) continue;
+    switch(e.key){
+      case "id": f.id = e.raw.trim(); break;
+      case "icon": f.icon = e.raw.trim(); break;
+      case "x": f.x = Math.round(parseFloat(e.raw) || 0); break;
+      case "y": f.y = Math.round(parseFloat(e.raw) || 0); break;
+      case "cost": f.cost = parseFloat(e.raw) || 0; break;
+      case "relative_position_id": f.relativePositionId = e.raw.trim(); break;
+      case "prerequisite": {
+        const inner = splitEntries(e.raw);
+        const group = inner.filter(x=>x.key==="focus").map(x=>x.raw.trim());
+        if(group.length) f.prerequisites.push(group);
+        break;
+      }
+      case "mutually_exclusive": {
+        const inner = splitEntries(e.raw);
+        const ids = inner.filter(x=>x.key==="focus").map(x=>x.raw.trim());
+        f.mutexIdsLocal.push(...ids);
+        break;
+      }
+      case "search_filters": f.searchFiltersCode = e.raw.trim(); break;
+      case "will_lead_to_war_with": f.willLeadToWarWithCode = e.raw.trim(); break;
+      case "available": f.availableCode = e.raw.trim(); break;
+      case "bypass": f.bypassCode = e.raw.trim(); break;
+      case "cancel": f.cancelCode = e.raw.trim(); break;
+      case "completion_reward": f.completionRewardCode = e.raw.trim(); break;
+      case "ai_will_do": f.aiWillDoCode = e.raw.trim(); break;
+      default:
+        f.extraFields.push({ key: e.key, raw: e.raw, isBlock: e.isBlock });
+    }
+  }
+  if(!f.id){
+    f.id = uid("IMPORTED").toUpperCase();
+    warnings.push({ line: lineHint||"?", target:"(unnamed focus)", reason:"id フィールドが見つからないため自動生成しました: " + f.id });
+  }
+  return f;
+}
+
+function parseFocusTreeText(text){
+  const warnings = [];
+  const top = splitEntries(text);
+  const treeEntry = top.find(e => e.key === "focus_tree" && e.isBlock);
+  if(!treeEntry){
+    return { ok:false, error: "focus_tree = { ... } ブロックが見つかりませんでした。", warnings };
+  }
+  const body = splitEntries(treeEntry.raw);
+  const tree = { id:"imported_focus_tree", country:"", default:true, resetOnCivilwar:true, extraCode:"", focuses:[], branches:[], mutexGroups:[] };
+  const extraLines = [];
+  const focusEntries = [];
+  for(const e of body){
+    if(!e.key) continue;
+    if(e.key === "id" && !e.isBlock){ tree.id = e.raw.trim(); continue; }
+    if(e.key === "focus" && e.isBlock){ focusEntries.push(e); continue; }
+    if(e.key === "default" && !e.isBlock){ tree.default = e.raw.trim() !== "no"; continue; }
+    if(e.key === "reset_on_civilwar" && !e.isBlock){ tree.resetOnCivilwar = e.raw.trim() !== "no"; continue; }
+    // preserve anything else (country=, continuous_focus_position=, joint_focus=, etc.) as free extra code
+    if(e.isBlock) extraLines.push(`${e.key} = {\n${indentBlock(e.raw,4)}\n}`);
+    else extraLines.push(`${e.key} = ${e.quoted ? q(e.raw) : e.raw}`);
+  }
+  tree.extraCode = extraLines.join("\n");
+
+  const idSeen = new Set();
+  for(const fe of focusEntries){
+    const f = parseFocusEntry(fe.raw, warnings);
+    if(idSeen.has(f.id)){
+      const newId = f.id + "_" + uid("dup").slice(-4);
+      warnings.push({ line:"?", target:f.id, reason:`ID が重複していたため ${newId} に変更しました。` });
+      f.id = newId;
+    }
+    idSeen.add(f.id);
+    tree.focuses.push(f);
+  }
+  // resolve mutual exclusivity into groups (union-find-ish via simple merge)
+  const groups = [];
+  function findGroup(id){ return groups.find(g => g.focuses.includes(id)); }
+  for(const f of tree.focuses){
+    for(const otherId of f.mutexIdsLocal){
+      let g1 = findGroup(f.id), g2 = findGroup(otherId);
+      if(g1 && g2 && g1 !== g2){
+        g1.focuses = [...new Set([...g1.focuses, ...g2.focuses])];
+        groups.splice(groups.indexOf(g2),1);
+      } else if(g1){ if(!g1.focuses.includes(otherId)) g1.focuses.push(otherId); }
+      else if(g2){ if(!g2.focuses.includes(f.id)) g2.focuses.push(f.id); }
+      else groups.push({ id: uid("mutex"), focuses:[f.id, otherId] });
+    }
+    delete f.mutexIdsLocal;
+  }
+  tree.mutexGroups = groups;
+
+  // validate prerequisite / mutex references exist; warn but keep them (don't silently drop)
+  const idSet = new Set(tree.focuses.map(f=>f.id));
+  for(const f of tree.focuses){
+    for(const grp of f.prerequisites) for(const rid of grp){
+      if(!idSet.has(rid)) warnings.push({ line:"?", target:f.id, reason:`前提条件 "${rid}" が存在するNFの中に見つかりません（そのまま保持します）。` });
+    }
+  }
+
+  // auto-assign a single default branch if none exists, and place unresolved x/y
+  if(tree.focuses.length){
+    const branch = { id: uid("branch"), name:"インポート", color: BRANCH_COLORS[0], collapsed:false, hidden:false, description:"" };
+    tree.branches.push(branch);
+    for(const f of tree.focuses) f.branchId = branch.id;
+  }
+  return { ok:true, tree, warnings };
+}
+
+function parseLocalisationText(text, forceLangKey){
+  // Real HOI4 .yml localisation format:
+  //   l_japanese:
+  //    NF_example:0 "国家再建"
+  //    NF_example_desc:0 "国家の再建を開始する。"
+  // A file may (rarely) contain more than one l_<lang>: block; each is parsed
+  // as its own language *unless* forceLangKey is supplied by the user, in
+  // which case every key/value line in the file — regardless of which (or
+  // whether any) l_<lang>: header precedes it — is filed under that single,
+  // user-chosen language. This lets the user's explicit language choice take
+  // priority over whatever the file itself declares (or doesn't declare).
+  const lines = text.split(/\r?\n/);
+  let autoLangKey = null;
+  const result = {};
+  for(const raw of lines){
+    const line = raw.replace(/^\uFEFF/, "");
+    if(/^\s*#/.test(line)) continue;      // comment line
+    if(/^\s*$/.test(line)) continue;      // blank line
+    const m = line.match(/^\s*l_([a-zA-Z_]+)\s*:\s*$/);
+    if(m){ autoLangKey = m[1]; continue; }
+    const langKey = forceLangKey || autoLangKey;
+    if(!langKey) continue; // no language context yet (no header seen, no override given) — skip safely
+    const em = line.match(/^\s*([A-Za-z0-9_.]+)\s*:\s*\d*\s*"((?:[^"\\]|\\.)*)"/);
+    if(em){
+      const key = em[1];
+      const val = em[2].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+      if(!result[langKey]) result[langKey] = {};
+      const bucket = result[langKey];
+      if(key.endsWith("_desc")){
+        const base = key.slice(0, -5);
+        bucket[base] = bucket[base] || {};
+        bucket[base].desc = val;
+      } else {
+        bucket[key] = bucket[key] || {};
+        bucket[key].name = val;
+      }
+    }
+  }
+  return result;
+}
+
+/* -------- language <-> pdx key bookkeeping -------- */
+const LANG_LABELS = {
+  japanese:"日本語", english:"English", german:"Deutsch", french:"Français", spanish:"Español",
+  russian:"Русский", polish:"Polski", braz_por:"Português (Brasil)", simp_chinese:"简体中文",
+  korean:"한국어", italian:"Italiano", turkish:"Türkçe",
+};
+function labelForLangKey(key){ return LANG_LABELS[key] || (key.charAt(0).toUpperCase()+key.slice(1)); }
+function ensureLanguage(langKey){
+  let lang = state.project.localisation.languages.find(l=>l.code===langKey);
+  if(!lang){
+    lang = { code: langKey, label: labelForLangKey(langKey) };
+    state.project.localisation.languages.push(lang);
+  }
+  return lang;
+}
+// merges parsed .yml content (see parseLocalisationText) into the project.
+// Later-loaded files overwrite matching keys — same rule as HOI4 itself uses across loc files.
+function mergeLocalisationImport(parsedByLang){
+  const stats = { languages:{}, unmatchedKeys:0, matchedFocusKeys:0 };
+  const idSet = new Set(ft().focuses.map(f=>f.id));
+  for(const langKey in parsedByLang){
+    ensureLanguage(langKey);
+    const bucket = parsedByLang[langKey];
+    let matched = 0, unmatched = 0;
+    for(const key in bucket){
+      const entry = bucket[key];
+      if(!state.project.localisation.entries[key]) state.project.localisation.entries[key] = {};
+      const existing = state.project.localisation.entries[key][langKey] || {};
+      state.project.localisation.entries[key][langKey] = {
+        name: entry.name != null ? entry.name : existing.name,
+        desc: entry.desc != null ? entry.desc : existing.desc,
+      };
+      if(idSet.has(key)) matched++; else unmatched++;
+    }
+    stats.languages[langKey] = { keys: Object.keys(bucket).length, matched, unmatched };
+    stats.matchedFocusKeys += matched;
+    stats.unmatchedKeys += unmatched;
+  }
+  return stats;
+}
+// Coverage summary for a given language: how many NFs currently have a
+// non-empty display name (and separately, description) for that language,
+// out of the total NF count. Used by the "Localization対応: X / Y NF" readout.
+function locCoverage(langCode){
+  const focuses = ft().focuses;
+  let named = 0, desced = 0;
+  for(const f of focuses){
+    const e = (state.project.localisation.entries[f.id] || {})[langCode];
+    if(e && e.name && e.name.trim()) named++;
+    if(e && e.desc && e.desc.trim()) desced++;
+  }
+  return { total: focuses.length, named, desced };
+}
+
+/* =========================================================================
+   5. Validator
+   ========================================================================= */
+function validateProject(project){
+  const issues = []; // {severity:'error'|'warn', focusId, message}
+  const tree = project.focusTree;
+  const idCount = {};
+  for(const f of tree.focuses) idCount[f.id] = (idCount[f.id]||0)+1;
+  const idSet = new Set(tree.focuses.map(f=>f.id));
+
+  if(!tree.id || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tree.id)){
+    issues.push({ severity:"error", focusId:null, message:`focus_tree の id "${tree.id}" が不正です（英数字とアンダースコアのみ使用可能）。` });
+  }
+  if(!tree.focuses.length){
+    issues.push({ severity:"warn", focusId:null, message:"NFが1つも作成されていません。" });
+  }
+
+  for(const f of tree.focuses){
+    if(!f.id || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(f.id)){
+      issues.push({ severity:"error", focusId:f.id, message:`NF ID "${f.id}" が不正です（英数字とアンダースコアのみ）。` });
+    }
+    if(idCount[f.id] > 1){
+      issues.push({ severity:"error", focusId:f.id, message:`NF ID "${f.id}" が重複しています。` });
+    }
+    if(!f.icon || !f.icon.trim()){
+      issues.push({ severity:"warn", focusId:f.id, message:"アイコンが未設定です。" });
+    }
+    if(f.cost == null || isNaN(f.cost) || f.cost < 0){
+      issues.push({ severity:"error", focusId:f.id, message:`Cost の値が不正です: ${f.cost}` });
+    }
+    if(!Number.isFinite(f.x) || !Number.isFinite(f.y)){
+      issues.push({ severity:"error", focusId:f.id, message:"座標(x, y) が数値ではありません。" });
+    }
+    for(const grp of f.prerequisites) for(const rid of grp){
+      if(!idSet.has(rid)) issues.push({ severity:"error", focusId:f.id, message:`前提条件の参照先 "${rid}" が存在しません。` });
+    }
+    if(f.relativePositionId && !idSet.has(f.relativePositionId)){
+      issues.push({ severity:"error", focusId:f.id, message:`relative_position_id の参照先 "${f.relativePositionId}" が存在しません。` });
+    }
+    const partners = mutexPartnersInProject(project, f.id);
+    for(const pid of partners){
+      if(!idSet.has(pid)) issues.push({ severity:"error", focusId:f.id, message:`相互排他の参照先 "${pid}" が存在しません。` });
+    }
+    const hasLoc = project.localisation.entries[f.id];
+    const primary = project.localisation.languages[0] && hasLoc && hasLoc[project.localisation.languages[0].code];
+    if(!primary || !primary.name || !primary.name.trim()){
+      issues.push({ severity:"warn", focusId:f.id, message:"表示名（Localisation）が未設定です。" });
+    }
+    if(!f.completionRewardCode.trim()){
+      issues.push({ severity:"warn", focusId:f.id, message:"completion_reward が空です（HOI4的には有効ですが、報酬なしのNFになります）。" });
+    }
+  }
+  // detect prerequisite cycles
+  const cyc = detectCycles(tree.focuses);
+  for(const id of cyc) issues.push({ severity:"error", focusId:id, message:"前提条件の循環参照が検出されました。" });
+  return issues;
+}
+function mutexPartnersInProject(project, focusId){
+  const set = new Set();
+  for(const g of project.focusTree.mutexGroups) if(g.focuses.includes(focusId)) for(const o of g.focuses) if(o!==focusId) set.add(o);
+  return [...set];
+}
+function detectCycles(focuses){
+  const graph = {}; for(const f of focuses) graph[f.id] = f.prerequisites.flat();
+  const bad = new Set();
+  const WHITE=0, GRAY=1, BLACK=2; const color = {}; for(const id in graph) color[id]=WHITE;
+  function dfs(id, stack){
+    color[id]=GRAY; stack.push(id);
+    for(const dep of (graph[id]||[])){
+      if(!(dep in color)) continue;
+      if(color[dep]===GRAY){ for(const s of stack) bad.add(s); bad.add(dep); }
+      else if(color[dep]===WHITE) dfs(dep, stack);
+    }
+    stack.pop(); color[id]=BLACK;
+  }
+  for(const id in graph) if(color[id]===WHITE) dfs(id, []);
+  return [...bad];
+}
+function focusIssues(issuesList, focusId){ return issuesList.filter(i=>i.focusId===focusId); }
+
+/* =========================================================================
+   6. Layout: absolute position resolution (handles relative_position_id) +
+      auto-layout (layered, based on prerequisite depth)
+   ========================================================================= */
+function resolveAbsolutePositions(tree){
+  const pos = {}; // id -> {x,y} in grid units
+  const visiting = new Set();
+  function resolve(f){
+    if(pos[f.id]) return pos[f.id];
+    if(visiting.has(f.id)){ pos[f.id] = { x:f.x, y:f.y }; return pos[f.id]; }
+    visiting.add(f.id);
+    let base = { x:0, y:0 };
+    if(f.relativePositionId){
+      const rf = focusByIdIn(tree, f.relativePositionId);
+      if(rf && rf !== f) base = resolve(rf);
+    }
+    const p = { x: base.x + f.x, y: base.y + f.y };
+    pos[f.id] = p;
+    visiting.delete(f.id);
+    return p;
+  }
+  for(const f of tree.focuses) resolve(f);
+  return pos;
+}
+function focusByIdIn(tree, id){ return tree.focuses.find(f=>f.id===id); }
+
+function autoLayout(){
+  const tree = ft();
+  if(!tree.focuses.length) return;
+  resolvedXCache = {};
+  const byId = {}; tree.focuses.forEach(f=>byId[f.id]=f);
+  const depth = {};
+  const preds = {}; tree.focuses.forEach(f=> preds[f.id] = f.prerequisites.flat().filter(id=>byId[id]));
+  function getDepth(id, seen){
+    if(depth[id] != null) return depth[id];
+    if(seen.has(id)) return 0;
+    seen.add(id);
+    const ps = preds[id];
+    const d = ps.length ? 1 + Math.max(...ps.map(p=>getDepth(p, seen))) : 0;
+    depth[id] = d;
+    return d;
+  }
+  tree.focuses.forEach(f => getDepth(f.id, new Set()));
+
+  // group by branch, then within branch lay out by depth (y) and assign x via sibling ordering
+  const byBranch = {};
+  for(const f of tree.focuses){ (byBranch[f.branchId||""] = byBranch[f.branchId||""] || []).push(f); }
+  let branchOriginX = 0;
+  const order = tree.branches.map(b=>b.id).concat([""]);
+  for(const bid of order){
+    const list = byBranch[bid]; if(!list || !list.length) continue;
+    const rows = {};
+    for(const f of list){ (rows[depth[f.id]] = rows[depth[f.id]] || []).push(f); }
+    let maxWidth = 0;
+    const depths = Object.keys(rows).map(Number).sort((a,b)=>a-b);
+    for(const d of depths){
+      const row = rows[d];
+      row.sort((a,b)=> (preds[a.id][0]&&byId[preds[a.id][0]] ? (resolvedXCache[preds[a.id][0]]||0) : 0) - (preds[b.id][0]&&byId[preds[b.id][0]] ? (resolvedXCache[preds[b.id][0]]||0) : 0));
+      row.forEach((f,i)=>{
+        f.x = Math.round(branchOriginX + i - (row.length-1)/2);
+        f.y = d;
+        f.relativePositionId = "";
+        resolvedXCache[f.id] = f.x;
+      });
+      maxWidth = Math.max(maxWidth, row.length);
+    }
+    branchOriginX += Math.max(maxWidth, 2) + 1;
+  }
+}
+let resolvedXCache = {};
+
+/* =========================================================================
+   7. ID / reference integrity helpers
+   ========================================================================= */
+function renameFocusId(oldId, newId){
+  newId = toSafeId(newId);
+  if(newId === oldId) return newId;
+  if(focusById(newId)){ return null; } // collision — caller should warn
+  const tree = ft();
+  const f = focusById(oldId); if(!f) return null;
+  f.id = newId;
+  for(const other of tree.focuses){
+    other.prerequisites = other.prerequisites.map(grp => grp.map(id => id===oldId? newId : id));
+    if(other.relativePositionId === oldId) other.relativePositionId = newId;
+  }
+  for(const g of tree.mutexGroups) g.focuses = g.focuses.map(id => id===oldId? newId : id);
+  if(state.project.localisation.entries[oldId]){
+    state.project.localisation.entries[newId] = state.project.localisation.entries[oldId];
+    delete state.project.localisation.entries[oldId];
+  }
+  if(state.activeFocusId === oldId) state.activeFocusId = newId;
+  if(state.selection.has(oldId)){ state.selection.delete(oldId); state.selection.add(newId); }
+  return newId;
+}
+function removeFocus(id){
+  const tree = ft();
+  tree.focuses = tree.focuses.filter(f=>f.id!==id);
+  for(const f of tree.focuses) f.prerequisites = f.prerequisites.map(g=>g.filter(x=>x!==id)).filter(g=>g.length);
+  for(const g of tree.mutexGroups) g.focuses = g.focuses.filter(x=>x!==id);
+  tree.mutexGroups = tree.mutexGroups.filter(g=>g.focuses.length>1);
+  for(const f of tree.focuses) if(f.relativePositionId===id) f.relativePositionId = "";
+  delete state.project.localisation.entries[id];
+  state.selection.delete(id);
+  if(state.activeFocusId===id) state.activeFocusId = null;
+}
+function uniqueFocusId(base){
+  base = toSafeId(base || "NEW_FOCUS");
+  let id = base, n = 1;
+  while(focusById(id)) id = base + "_" + (++n);
+  return id;
+}
+// HOI4 focus x/y are grid slots and must be whole numbers. Any legacy/imported
+// fractional coordinates are rounded (round-half-up) so the *stored* data — not
+// just the on-screen position — is always an integer.
+function sanitizeCoordinates(tree){
+  for(const f of tree.focuses){
+    f.x = Math.round(Number(f.x) || 0);
+    f.y = Math.round(Number(f.y) || 0);
+  }
+}
+// HOI4 treats `cost` as an abstract point value; the actual number of days to
+// complete a focus is cost × 7 (i.e. one "cost point" per game week).
+function costToDays(cost){ return Math.round((Number(cost)||0) * 7); }
+
+/* =========================================================================
+   MOBILE UI — everything below is new; everything above is shared with the
+   desktop build and must not be duplicated or re-implemented here.
+   ========================================================================= */
+
+/* -------- geometry (mobile cards are bigger/touch-friendlier than desktop's) -------- */
+const M_GX = 168, M_GY = 132;           // pixels per grid unit, mobile layout
+const M_NODE_HALF_W = 76, M_NODE_TOP_Y = 0, M_NODE_BOTTOM_Y = 92; // anchor points, matches .mnode CSS size
+
+/* -------- keyboard-aware viewport height (keeps sheet headers/Save buttons
+   visible above the on-screen keyboard on iOS/Android) -------- */
+function setupViewportUnit(){
+  function update(){
+    const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    document.documentElement.style.setProperty("--app-vh", h + "px");
+  }
+  update();
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize", update);
+    window.visualViewport.addEventListener("scroll", update);
+  }
+  window.addEventListener("resize", update);
+  window.addEventListener("orientationchange", ()=> setTimeout(update, 60));
+}
+
+/* -------- generic sheet (bottom sheet / fullscreen sheet) plumbing -------- */
+const SHEET_IDS = ["menuSheet","searchSheet","editSheet","branchSheet","locSheet","assetSheet","pickerSheet"];
+function openSheet(id){
+  document.getElementById("scrim").classList.add("show");
+  document.getElementById(id).classList.add("show");
+}
+function closeSheet(id){
+  document.getElementById(id).classList.remove("show");
+  const anyOpen = SHEET_IDS.some(sid => document.getElementById(sid).classList.contains("show"));
+  if(!anyOpen) document.getElementById("scrim").classList.remove("show");
+}
+function closeAllSheets(){ SHEET_IDS.forEach(closeSheet); }
+
+/* =========================================================================
+   Top bar
+   ========================================================================= */
+function renderTopbar(){
+  const bar = document.getElementById("topbar");
+  clear(bar);
+  bar.appendChild(iconBtn("☰", "メニュー", ()=> openMenuSheet()));
+  const canUndo = state.history.undo.length>0, canRedo = state.history.redo.length>0;
+  bar.appendChild(iconBtn("↺", "元に戻す", undo, !canUndo));
+  bar.appendChild(iconBtn("↻", "やり直す", redo, !canRedo));
+  bar.appendChild(el("div", {class:"title"}, [
+    state.project.meta.name,
+    el("span",{class:"sub"}, `NF ${ft().focuses.length} 件`),
+  ]));
+  bar.appendChild(iconBtn("🔍", "検索", ()=> openSearchSheet()));
+  bar.appendChild(iconBtn(state.ui.previewMode ? "✎" : "▶", state.ui.previewMode ? "編集モード" : "プレビュー", ()=>{
+    state.ui.previewMode = !state.ui.previewMode; renderAll();
+  }, false, state.ui.previewMode));
+}
+function iconBtn(glyph, label, onClick, disabled, active){
+  return el("button", { class:"icon-btn"+(active?" brass":""), "aria-label":label, disabled: !!disabled, onclick: onClick }, glyph);
+}
+
+/* =========================================================================
+   Canvas rendering — nodes + connections (mobile geometry, same data model)
+   ========================================================================= */
+let mobileIssues = [];
+function screenToWorld(sx, sy){
+  return { x: (sx - state.camera.x) / state.camera.zoom, y: (sy - state.camera.y) / state.camera.zoom };
+}
+function renderCanvasTransform(){
+  document.getElementById("world").style.transform = `translate(${state.camera.x}px, ${state.camera.y}px) scale(${state.camera.zoom})`;
+}
+function visibleFocuses(){
+  return ft().focuses.filter(f => {
+    if(state.ui.activeBranchFilter && f.branchId !== state.ui.activeBranchFilter) return false;
+    if(state.ui.hiddenBranches.has(f.branchId)) return false;
+    return true;
+  });
+}
+function renderCanvas(){
+  mobileIssues = validateProject(state.project);
+  const tree = ft();
+  const pos = resolveAbsolutePositions(tree);
+  const nodelayer = document.getElementById("nodelayer");
+  clear(nodelayer);
+  const empty = document.getElementById("emptyhint");
+  const visible = visibleFocuses();
+  empty.style.display = tree.focuses.length ? "none" : "flex";
+  if(!tree.focuses.length) empty.innerHTML = "NFがまだありません。<br>右下の「＋」ボタンから作成してください。";
+
+  for(const f of visible){
+    const p = pos[f.id];
+    const px = p.x*M_GX, py = p.y*M_GY;
+    const issues = focusIssues(mobileIssues, f.id);
+    const hasErr = issues.some(i=>i.severity==="error");
+    const hasWarn = issues.some(i=>i.severity==="warn");
+    const branch = branchById(f.branchId);
+    const asset = state.project.assets.icons.find(a=>a.gfxName===f.icon);
+    const isSel = state.selection.has(f.id);
+    const locEntry = (state.project.localisation.entries[f.id]||{})[state.ui.codeLang] || (Object.values(state.project.localisation.entries[f.id]||{})[0]) || {};
+
+    const node = el("div", { class:"mnode"+(isSel?" sel":"")+(hasErr?" err":"")+(hasWarn?" warn":""), style:`left:${px}px; top:${py}px;`, "data-id":f.id });
+    const top = el("div", {class:"mn-top"});
+    const iconBox = el("div", {class:"mn-icon"});
+    if(asset) iconBox.appendChild(el("img",{src:asset.dataUrl})); else iconBox.appendChild(el("span",{class:"ph"},"GFX"));
+    top.appendChild(iconBox);
+    if(branch) top.appendChild(el("span",{class:"mn-branchdot", style:`background:${branch.color}`}));
+    node.appendChild(top);
+    node.appendChild(el("div",{class:"mn-title"}, locEntry.name || f.id));
+    node.appendChild(el("div",{class:"mn-id"}, f.id));
+    const bottom = el("div",{class:"mn-bottom"});
+    bottom.appendChild(el("span",{class:"mn-cost"}, "⏱ "+costToDays(f.cost)+"日"));
+    const badges = el("div",{class:"mn-badges"});
+    if(hasErr) badges.appendChild(el("span",{class:"badge b-err"}));
+    else if(hasWarn) badges.appendChild(el("span",{class:"badge b-warn"}));
+    if(mutexPartnersOf(f.id).length) badges.appendChild(el("span",{class:"badge b-mutex"}));
+    if(f.completionRewardCode.trim() || f.availableCode.trim() || f.bypassCode.trim()) badges.appendChild(el("span",{class:"badge b-code"}));
+    bottom.appendChild(badges);
+    node.appendChild(bottom);
+    nodelayer.appendChild(node);
+  }
+  renderConnectionsMobile(visible, pos);
+}
+function mobileAnchors(fromPos, toPos){
+  const fx = fromPos.x*M_GX + M_NODE_HALF_W, tx = toPos.x*M_GX + M_NODE_HALF_W;
+  if(fromPos.y <= toPos.y) return { ax:fx, ay:fromPos.y*M_GY+M_NODE_BOTTOM_Y, bx:tx, by:toPos.y*M_GY+M_NODE_TOP_Y };
+  return { ax:fx, ay:fromPos.y*M_GY+M_NODE_TOP_Y, bx:tx, by:toPos.y*M_GY+M_NODE_BOTTOM_Y };
+}
+function renderConnectionsMobile(visible, pos){
+  const svg = document.getElementById("connlayer");
+  clear(svg);
+  const defs = svgEl("defs");
+  const marker = svgEl("marker", {id:"arrow", markerWidth:"9", markerHeight:"9", refX:"7", refY:"3.5", orient:"auto"},
+    [ svgEl("path", {d:"M0,0 L7,3.5 L0,7 Z", fill:"#eef1f5"}) ]);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+  const visibleIds = new Set(visible.map(f=>f.id));
+  let maxX=0, maxY=0;
+  for(const f of visible){
+    const p = pos[f.id]; maxX = Math.max(maxX, p.x*M_GX+320); maxY = Math.max(maxY, p.y*M_GY+320);
+    if(!f.prerequisites.length) continue;
+    f.prerequisites.forEach(group=>{
+      group.forEach(fromId=>{
+        if(!visibleIds.has(fromId)) return;
+        const fp = pos[fromId]; if(!fp) return;
+        const { ax, ay, bx, by } = mobileAnchors(fp, p);
+        svg.appendChild(svgEl("path", { d: orthogonalPath(ax,ay,bx,by), stroke:"#eef1f5", "stroke-width":"2", fill:"none",
+          "stroke-dasharray": group.length>1 ? "6,4" : "none", "marker-end":"url(#arrow)", opacity:"0.85" }));
+      });
+    });
+  }
+  const drawnPairs = new Set();
+  for(const g of ft().mutexGroups){
+    for(let i=0;i<g.focuses.length;i++) for(let j=i+1;j<g.focuses.length;j++){
+      const a = g.focuses[i], b = g.focuses[j];
+      if(!visibleIds.has(a) || !visibleIds.has(b)) continue;
+      const key=[a,b].sort().join("|"); if(drawnPairs.has(key)) continue; drawnPairs.add(key);
+      const { ax, ay, bx, by } = mobileAnchors(pos[a], pos[b]);
+      svg.appendChild(svgEl("path", { d: orthogonalPath(ax,ay,bx,by), stroke:"#e2694f", "stroke-width":"2",
+        "stroke-dasharray":"5,4", fill:"none", opacity:"0.8" }));
+    }
+  }
+  svg.setAttribute("width", Math.max(maxX,1));
+  svg.setAttribute("height", Math.max(maxY,1));
+}
+
+/* =========================================================================
+   HUD (zoom) + contextual bottom bar
+   ========================================================================= */
+function renderHud(){
+  const hud = document.getElementById("hud");
+  clear(hud);
+  hud.appendChild(el("button",{class:"hud-btn", onclick:()=>zoomBy(1.25)}, "＋"));
+  hud.appendChild(el("button",{class:"hud-btn", onclick:()=>zoomBy(1/1.25)}, "－"));
+  hud.appendChild(el("button",{class:"hud-btn", onclick:fitToScreen}, "⤢"));
+}
+function zoomBy(factor){
+  const wrap = document.getElementById("canvaswrap");
+  const cx = wrap.clientWidth/2, cy = wrap.clientHeight/2;
+  const before = screenToWorld(cx,cy);
+  state.camera.zoom = clamp(state.camera.zoom*factor, 0.12, 2.2);
+  const after = screenToWorld(cx,cy);
+  state.camera.x += (after.x-before.x)*state.camera.zoom;
+  state.camera.y += (after.y-before.y)*state.camera.zoom;
+  renderCanvasTransform();
+}
+function fitToScreen(){
+  const tree = ft();
+  const wrap = document.getElementById("canvaswrap");
+  if(!tree.focuses.length){ state.camera = {x:40,y:40,zoom:0.9}; renderCanvasTransform(); return; }
+  const pos = resolveAbsolutePositions(tree);
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const f of tree.focuses){
+    const p = pos[f.id];
+    minX = Math.min(minX, p.x*M_GX); maxX = Math.max(maxX, p.x*M_GX+152);
+    minY = Math.min(minY, p.y*M_GY); maxY = Math.max(maxY, p.y*M_GY+92);
+  }
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  const zoom = clamp(Math.min(w/(maxX-minX+120), h/(maxY-minY+160), 1.1), 0.15, 1.1);
+  state.camera.zoom = zoom;
+  state.camera.x = w/2 - ((minX+maxX)/2)*zoom;
+  state.camera.y = h/2 - ((minY+maxY)/2)*zoom;
+  renderCanvasTransform();
+}
+function renderCtxbar(){
+  const bar = document.getElementById("ctxbar");
+  const fab = document.getElementById("fab");
+  clear(bar);
+  const id = state.selection.size===1 ? [...state.selection][0] : null;
+  const f = id ? focusById(id) : null;
+  if(!f){ bar.classList.remove("show"); document.documentElement.style.setProperty("--ctxbar-h","0px"); fab.classList.remove("raised"); return; }
+  const locEntry = (state.project.localisation.entries[f.id]||{})[state.ui.codeLang] || {};
+  bar.appendChild(el("div",{class:"ctx-info"},[ el("div",{class:"cn"}, locEntry.name || f.id), el("div",{class:"ci"}, f.id) ]));
+  bar.appendChild(ctxBtn("✎","編集", ()=>openEditSheet(f.id)));
+  bar.appendChild(ctxBtn("⧉","複製", ()=>mobileDuplicate(f.id)));
+  bar.appendChild(ctxBtn("🔗","前提", ()=>openPrereqQuickPicker(f.id)));
+  bar.appendChild(ctxBtn("⛔","排他", ()=>openMutexPicker(f.id)));
+  bar.appendChild(ctxBtn("🗑","削除", ()=>mobileDelete(f.id), true));
+  bar.appendChild(ctxBtn("✕","閉じる", ()=>{ state.selection=new Set(); state.activeFocusId=null; renderAll(); }));
+  bar.classList.add("show");
+  fab.classList.add("raised");
+  requestAnimationFrame(()=> document.documentElement.style.setProperty("--ctxbar-h", bar.offsetHeight+"px"));
+}
+function ctxBtn(glyph, label, onClick, danger){
+  return el("button",{class:"ctx-btn"+(danger?" danger":""), onclick:onClick}, [ glyph, el("span",null,label) ]);
+}
+function mobileDuplicate(id){
+  const src = focusById(id); if(!src) return;
+  commit("duplicate", ()=>{
+    const clone = deepClone(src);
+    clone.id = uniqueFocusId(src.id + "_COPY");
+    clone.x += 1; clone.y += 1;
+    ft().focuses.push(clone);
+    const srcLoc = state.project.localisation.entries[id];
+    if(srcLoc) state.project.localisation.entries[clone.id] = deepClone(srcLoc);
+    state.selection = new Set([clone.id]); state.activeFocusId = clone.id;
+  });
+}
+function mobileDelete(id){
+  const f = focusById(id); if(!f) return;
+  if(!confirm(`「${f.id}」を削除します。よろしいですか？`)) return;
+  commit("delete", ()=>{ removeFocus(id); });
+}
+
+/* =========================================================================
+   Master render
+   ========================================================================= */
+function onProjectChanged(){ renderAll(); scheduleAutosave(); }
+function renderAll(){
+  renderTopbar();
+  renderCanvas();
+  renderCanvasTransform();
+  renderHud();
+  renderCtxbar();
+}
+function renderCanvasNodesSelectionOnly(){
+  document.querySelectorAll(".mnode").forEach(n=> n.classList.toggle("sel", state.selection.has(n.getAttribute("data-id"))));
+}
+function cssEscape(s){ return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/[^a-zA-Z0-9_-]/g,"\\$&"); }
+
+/* =========================================================================
+   Touch gestures (Pointer Events unify touch/mouse/pen)
+   - 1 finger on empty canvas, or a quick drag starting on a card: PAN
+   - 2 fingers anywhere: PINCH-ZOOM (+ two-finger pan via centroid movement)
+   - a clean tap on a card (no movement): SELECT (shows the contextual bar)
+   - a clean tap on empty canvas: DESELECT
+   - double-tap a card: jump straight into the edit sheet
+   - double-tap empty canvas: create a new NF at that spot
+   - LONG-PRESS a card (held still ~420ms) then drag: MOVE that NF, snapped
+     live to whole grid units; releasing commits the (integer) position and
+     recalculates every connection line in real time
+   ========================================================================= */
+const pointers = new Map();
+let gestureMode = null; // null | 'pending-node' | 'pending-pan' | 'pan' | 'pinch' | 'moveNode'
+let gctx = {};
+let longPressTimer = null;
+let lastTapInfo = null;      // { id, time } — for double-tap on a card
+let lastEmptyTap = null;     // { time, x, y } — for double-tap on empty canvas
+const LONG_PRESS_MS = 420, MOVE_THRESHOLD = 9, DOUBLE_TAP_MS = 320;
+
+function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+function wrapRect(){ return document.getElementById("canvaswrap").getBoundingClientRect(); }
+
+function setupGestures(){
+  const wrap = document.getElementById("canvaswrap");
+  wrap.addEventListener("pointerdown", onPointerDown);
+  wrap.addEventListener("pointermove", onPointerMove);
+  wrap.addEventListener("pointerup", onPointerUp);
+  wrap.addEventListener("pointercancel", onPointerUp);
+}
+function onPointerDown(ev){
+  try{ ev.target.setPointerCapture && ev.target.setPointerCapture(ev.pointerId); }catch(e){}
+  pointers.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+
+  if(pointers.size === 1){
+    const nodeEl = ev.target.closest && ev.target.closest(".mnode");
+    gctx = {
+      startX: ev.clientX, startY: ev.clientY, startTime: Date.now(),
+      startCamX: state.camera.x, startCamY: state.camera.y,
+      moved: false, nodeId: nodeEl ? nodeEl.getAttribute("data-id") : null,
+    };
+    if(nodeEl){
+      gestureMode = "pending-node";
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(()=> beginNodeMove(gctx.nodeId), LONG_PRESS_MS);
+    } else {
+      gestureMode = "pending-pan";
+    }
+  } else if(pointers.size === 2){
+    clearTimeout(longPressTimer);
+    if(gestureMode === "moveNode") finishNodeMove();
+    gestureMode = "pinch";
+    const pts = [...pointers.values()];
+    gctx.pinchStartDist = Math.max(dist(pts[0], pts[1]), 1);
+    gctx.pinchStartZoom = state.camera.zoom;
+    gctx.pinchCenterStart = mid(pts[0], pts[1]);
+    gctx.pinchCamStart = { x: state.camera.x, y: state.camera.y };
+  }
+}
+function onPointerMove(ev){
+  if(!pointers.has(ev.pointerId)) return;
+  pointers.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
+
+  if(gestureMode === "pinch" && pointers.size >= 2){
+    const pts = [...pointers.values()].slice(0,2);
+    const d = Math.max(dist(pts[0], pts[1]), 1);
+    const c = mid(pts[0], pts[1]);
+    const rect = wrapRect();
+    const worldAtStart = {
+      x: (gctx.pinchCenterStart.x - rect.left - gctx.pinchCamStart.x) / gctx.pinchStartZoom,
+      y: (gctx.pinchCenterStart.y - rect.top - gctx.pinchCamStart.y) / gctx.pinchStartZoom,
+    };
+    state.camera.zoom = clamp(gctx.pinchStartZoom * (d / gctx.pinchStartDist), 0.12, 2.2);
+    state.camera.x = (c.x - rect.left) - worldAtStart.x * state.camera.zoom;
+    state.camera.y = (c.y - rect.top) - worldAtStart.y * state.camera.zoom;
+    renderCanvasTransform();
+    return;
+  }
+  if(gestureMode === "moveNode"){
+    const f = focusById(gctx.nodeId); if(!f) return;
+    const dx = (ev.clientX - gctx.moveStartClientX) / state.camera.zoom;
+    const dy = (ev.clientY - gctx.moveStartClientY) / state.camera.zoom;
+    // Live-snapped to whole grid units on every frame — the stored value is
+    // always an integer, never just the on-screen position.
+    f.x = Math.round(gctx.moveStartFX + dx / M_GX);
+    f.y = Math.round(gctx.moveStartFY + dy / M_GY);
+    const nodeEl = document.querySelector(`.mnode[data-id="${cssEscape(f.id)}"]`);
+    const tree = ft(); const pos = resolveAbsolutePositions(tree);
+    if(nodeEl){ nodeEl.style.left = (pos[f.id].x*M_GX)+"px"; nodeEl.style.top = (pos[f.id].y*M_GY)+"px"; }
+    renderConnectionsMobile(visibleFocuses(), pos);
+    return;
+  }
+  if(gestureMode === "pending-node" || gestureMode === "pending-pan" || gestureMode === "pan"){
+    const dx = ev.clientX - gctx.startX, dy = ev.clientY - gctx.startY;
+    if(!gctx.moved && Math.hypot(dx,dy) > MOVE_THRESHOLD){
+      gctx.moved = true;
+      clearTimeout(longPressTimer);
+      gestureMode = "pan"; // any real drag — even one starting on a card — pans, so panning never fights with tap/long-press
+    }
+    if(gestureMode === "pan"){
+      state.camera.x = gctx.startCamX + dx;
+      state.camera.y = gctx.startCamY + dy;
+      renderCanvasTransform();
+    }
+  }
+}
+function onPointerUp(ev){
+  clearTimeout(longPressTimer);
+  const mode = gestureMode;
+  pointers.delete(ev.pointerId);
+
+  if(mode === "moveNode"){
+    finishNodeMove();
+  } else if(mode === "pending-node" && !gctx.moved){
+    handleNodeTap(gctx.nodeId);
+  } else if(mode === "pending-pan" && !gctx.moved){
+    handleEmptyTap();
+  }
+
+  if(pointers.size === 0){
+    gestureMode = null; gctx = {};
+  } else if(pointers.size === 1){
+    const remaining = [...pointers.values()][0];
+    gctx = { startX: remaining.x, startY: remaining.y, startCamX: state.camera.x, startCamY: state.camera.y, moved:false, nodeId:null };
+    gestureMode = "pending-pan"; // re-baseline so the last finger doesn't jump the camera
+  }
+}
+function beginNodeMove(id){
+  if(gestureMode !== "pending-node") return;
+  if(state.ui.previewMode) return; // preview mode: press-and-hold pans the view instead of moving the NF
+  const f = focusById(id); if(!f) return;
+  gestureMode = "moveNode";
+  gctx.nodeId = id;
+  gctx.moveStartClientX = gctx.startX;
+  gctx.moveStartClientY = gctx.startY;
+  gctx.moveStartFX = f.x; gctx.moveStartFY = f.y;
+  pushHistory(); // snapshot BEFORE any coordinate change, so Undo restores the pre-move position
+  const nodeEl = document.querySelector(`.mnode[data-id="${cssEscape(id)}"]`);
+  if(nodeEl) nodeEl.classList.add("moving");
+  if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
+}
+function finishNodeMove(){
+  const nodeEl = document.querySelector(`.mnode[data-id="${cssEscape(gctx.nodeId)}"]`);
+  if(nodeEl) nodeEl.classList.remove("moving");
+  onProjectChanged();
+  gestureMode = null;
+}
+function handleNodeTap(id){
+  const now = Date.now();
+  const isDoubleTap = lastTapInfo && lastTapInfo.id === id && (now - lastTapInfo.time) < DOUBLE_TAP_MS;
+  lastTapInfo = { id, time: now };
+  if(isDoubleTap){ openEditSheet(id); return; }
+  state.selection = new Set([id]);
+  state.activeFocusId = id;
+  renderCanvasNodesSelectionOnly();
+  renderCtxbar();
+}
+function handleEmptyTap(){
+  const now = Date.now();
+  const isDoubleTap = lastEmptyTap && (now - lastEmptyTap.time) < DOUBLE_TAP_MS && dist(lastEmptyTap, {x:gctx.startX,y:gctx.startY}) < 24;
+  lastEmptyTap = { time: now, x: gctx.startX, y: gctx.startY };
+  if(isDoubleTap){
+    const rect = wrapRect();
+    const world = screenToWorld(gctx.startX-rect.left, gctx.startY-rect.top);
+    openEditSheet(null, { x: Math.round(world.x/M_GX), y: Math.round(world.y/M_GY) });
+    return;
+  }
+  if(state.selection.size){ state.selection = new Set(); state.activeFocusId = null; renderCanvasNodesSelectionOnly(); renderCtxbar(); }
+}
+function setupFab(){
+  document.getElementById("fab").addEventListener("click", ()=>{
+    const wrap = document.getElementById("canvaswrap");
+    const world = screenToWorld(wrap.clientWidth/2, wrap.clientHeight/2);
+    openEditSheet(null, { x: Math.round(world.x/M_GX), y: Math.round(world.y/M_GY) });
+  });
+}
+
+/* =========================================================================
+   Generic picker sheet — reused for prerequisite selection, mutex selection
+   and icon selection (grid mode). One component, several call sites.
+   ========================================================================= */
+function openPickerSheet(opts){
+  const root = document.getElementById("pickerSheet");
+  clear(root);
+  root.appendChild(el("div",{class:"sheet-handle"}));
+  const header = el("div",{class:"sheet-header"});
+  header.appendChild(el("button",{class:"icon-btn", onclick:()=>closeSheet("pickerSheet")}, "✕"));
+  header.appendChild(el("h3",null, opts.title));
+  root.appendChild(header);
+  const body = el("div",{class:"sheet-body"});
+
+  if(opts.mode === "iconGrid"){
+    const grid = el("div",{class:"asset-grid"});
+    if(!opts.options.length) body.appendChild(el("p",{class:"m-note"}, "選択できるアイコンがありません。"));
+    for(const o of opts.options){
+      const tile = el("div",{class:"asset-tile"+(opts.selected===o.id?" sel":"")});
+      if(o.dataUrl) tile.appendChild(el("img",{src:o.dataUrl}));
+      else tile.appendChild(el("div",{style:"height:34px;display:flex;align-items:center;justify-content:center;"}, el("span",{style:"font-size:9px;color:var(--ink-faint);"},"GFX")));
+      tile.appendChild(el("div",{class:"an"}, o.label));
+      tile.onclick = ()=>{ closeSheet("pickerSheet"); opts.onConfirm(o.id); };
+      grid.appendChild(tile);
+    }
+    body.appendChild(grid);
+    root.appendChild(body);
+    openSheet("pickerSheet");
+    return;
+  }
+
+  // multi-select list mode (prerequisites / mutual exclusivity)
+  const chosen = new Set(opts.selected || []);
+  const saveBtn = el("button",{class:"save-btn", onclick:()=>{ closeSheet("pickerSheet"); opts.onConfirm([...chosen]); }}, "適用");
+  header.appendChild(saveBtn);
+  if(!opts.options.length) body.appendChild(el("p",{class:"m-note"}, "選択できるNFがありません。"));
+  for(const o of opts.options){
+    const row = el("div",{class:"m-list-row"});
+    const chk = el("span",{style:"width:24px;font-size:17px;color:var(--brass-bright);flex:0 0 auto;"}, chosen.has(o.id)?"●":"○");
+    row.appendChild(chk);
+    row.appendChild(el("div",{style:"flex:1;min-width:0;"},[
+      el("div",{style:"font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"}, o.label),
+      el("div",{style:"font-family:var(--font-mono);font-size:10px;color:var(--ink-faint);"}, o.id),
+    ]));
+    row.onclick = ()=>{
+      if(chosen.has(o.id)){ chosen.delete(o.id); chk.textContent="○"; } else { chosen.add(o.id); chk.textContent="●"; }
+    };
+    body.appendChild(row);
+  }
+  root.appendChild(body);
+  openSheet("pickerSheet");
+}
+function focusPickerOptions(excludeId){
+  return ft().focuses.filter(o=>o.id!==excludeId).map(o=>({
+    id:o.id,
+    label:((state.project.localisation.entries[o.id]||{})[state.ui.codeLang]||{}).name || o.id,
+  }));
+}
+function iconPickerOptions(){
+  return [
+    ...BUILTIN_ICONS.map(gfx=>({id:gfx, label:gfx.replace(/^GFX_/,""), dataUrl:null})),
+    ...state.project.assets.icons.map(a=>({id:a.gfxName, label:a.gfxName.replace(/^GFX_/,""), dataUrl:a.dataUrl})),
+  ];
+}
+function openPrereqQuickPicker(id){
+  const f = focusById(id); if(!f) return;
+  openPickerSheet({
+    title:"前提NFを選択（単一グループ）",
+    mode:"list",
+    options: focusPickerOptions(id),
+    selected: f.prerequisites.flat(),
+    onConfirm:(ids)=>{ commit("set prerequisites", ()=>{ f.prerequisites = ids.length ? [ids] : []; }); },
+  });
+}
+function openMutexPicker(id){
+  openPickerSheet({
+    title:"相互排他NFを選択",
+    mode:"list",
+    options: focusPickerOptions(id),
+    selected: mutexPartnersOf(id),
+    onConfirm:(ids)=>{
+      commit("set mutex", ()=>{
+        const tree = ft();
+        tree.mutexGroups = tree.mutexGroups.map(g=>({...g, focuses:g.focuses.filter(x=>x!==id)})).filter(g=>g.focuses.length>1);
+        if(ids.length) tree.mutexGroups.push({ id:uid("mutex"), focuses:[id, ...ids] });
+      });
+    },
+  });
+}
+
+/* =========================================================================
+   Edit sheet — full-screen, sectioned NF editor. Edits a local draft and
+   applies everything in one commit on Save, so "入力 → 確認 → 保存" always
+   completes in a single, keyboard-safe step (the Save button lives in a
+   sticky header, never under the on-screen keyboard).
+   ========================================================================= */
+let editDraft = null;
+let editDraftSnapshot = null;
+function openEditSheet(focusId, presetPos){
+  let draft;
+  if(focusId){
+    const src = focusById(focusId);
+    draft = {
+      mode:"edit", originalId:focusId, id:src.id, icon:src.icon, branchId:src.branchId, cost:src.cost,
+      x:src.x, y:src.y, prerequisites: deepClone(src.prerequisites), mutexPartners: mutexPartnersOf(focusId),
+      availableCode:src.availableCode, bypassCode:src.bypassCode, cancelCode:src.cancelCode,
+      completionRewardCode:src.completionRewardCode, aiWillDoCode:src.aiWillDoCode,
+      willLeadToWarWithCode:src.willLeadToWarWithCode, searchFiltersCode:src.searchFiltersCode,
+      loc:{},
+    };
+  } else {
+    draft = {
+      mode:"create", originalId:null, id: uniqueFocusId("NEW_FOCUS"), icon:"GFX_goal_generic_national_focus",
+      branchId: state.ui.activeBranchFilter || (ft().branches[0] && ft().branches[0].id) || "",
+      cost:10, x:(presetPos&&presetPos.x)||0, y:(presetPos&&presetPos.y)||0,
+      prerequisites:[], mutexPartners:[],
+      availableCode:"", bypassCode:"", cancelCode:"", completionRewardCode:"", aiWillDoCode:"",
+      willLeadToWarWithCode:"", searchFiltersCode:"",
+      loc:{},
+    };
+  }
+  for(const lang of state.project.localisation.languages){
+    const existing = focusId ? (state.project.localisation.entries[focusId]||{})[lang.code] : null;
+    draft.loc[lang.code] = { name:(existing&&existing.name)||"", desc:(existing&&existing.desc)||"" };
+  }
+  editDraft = draft;
+  editDraftSnapshot = JSON.stringify(draft);
+  renderEditSheet();
+  openSheet("editSheet");
+}
+function closeEditSheet(force){
+  if(!force && editDraft && JSON.stringify(editDraft) !== editDraftSnapshot){
+    if(!confirm("編集内容を保存せずに閉じますか？")) return;
+  }
+  editDraft = null;
+  closeSheet("editSheet");
+}
+function renderEditSheet(){
+  const root = document.getElementById("editSheet");
+  clear(root);
+  const d = editDraft;
+  root.appendChild(el("div",{class:"sheet-handle"}));
+  const header = el("div",{class:"sheet-header"});
+  header.appendChild(el("button",{class:"icon-btn", onclick:()=>closeEditSheet(false)}, "✕"));
+  header.appendChild(el("h3",null, d.mode==="create" ? "新規NF" : d.id));
+  header.appendChild(el("button",{class:"save-btn", onclick:saveEditDraft}, "保存"));
+  root.appendChild(header);
+
+  const body = el("div",{class:"sheet-body"});
+
+  // 基本情報
+  const secBasic = el("div",{class:"m-section"});
+  secBasic.appendChild(el("h4",null,"基本情報"));
+  const idField = el("div",{class:"m-field"},[ el("label",null,"NF ID"),
+    el("input",{type:"text", value:d.id, oninput:function(){ d.id = this.value; }}) ]);
+  secBasic.appendChild(idField);
+  const iconRow = el("div",{class:"m-field"},[ el("label",null,"アイコン") ]);
+  const iconBtnEl = el("button",{class:"m-btn full", style:"justify-content:flex-start;gap:10px;", onclick:()=>{
+    openPickerSheet({ title:"アイコンを選択", mode:"iconGrid", options: iconPickerOptions(), selected: d.icon,
+      onConfirm:(gfx)=>{ d.icon = gfx; renderEditSheet(); } });
+  }});
+  const iconPrev = el("span",{style:"width:28px;height:28px;border-radius:6px;background:var(--bg-alt);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto;"});
+  const iconAsset = state.project.assets.icons.find(a=>a.gfxName===d.icon);
+  if(iconAsset) iconPrev.appendChild(el("img",{src:iconAsset.dataUrl, style:"width:100%;height:100%;object-fit:contain;"}));
+  else iconPrev.appendChild(el("span",{style:"font-size:9px;color:var(--ink-faint);"},"GFX"));
+  iconBtnEl.appendChild(iconPrev);
+  iconBtnEl.appendChild(el("span",{style:"font-family:var(--font-mono);font-size:12px;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;"}, d.icon||"(未選択)"));
+  iconRow.appendChild(iconBtnEl);
+  secBasic.appendChild(iconRow);
+
+  const branchSel = el("select",{onchange:function(){ d.branchId = this.value; }});
+  branchSel.appendChild(el("option",{value:""}, "(未分類)"));
+  for(const b of ft().branches) branchSel.appendChild(el("option",{value:b.id, selected:d.branchId===b.id}, b.name));
+  secBasic.appendChild(el("div",{class:"m-field"},[ el("label",null,"ブランチ"), branchSel ]));
+
+  const costInput = el("input",{type:"number", inputmode:"decimal", value:d.cost});
+  const daysNote = el("div",{class:"m-note"}, `≈ ${costToDays(d.cost)} 日（HOI4コスト × 7）`);
+  costInput.addEventListener("input", function(){ d.cost = parseFloat(this.value)||0; daysNote.textContent = `≈ ${costToDays(d.cost)} 日（HOI4コスト × 7）`; });
+  secBasic.appendChild(el("div",{class:"m-field"},[ el("label",null,"Cost（HOI4コスト値）"), costInput, daysNote ]));
+  body.appendChild(secBasic);
+
+  // 配置（整数座標）
+  const secPos = el("div",{class:"m-section"});
+  secPos.appendChild(el("h4",null,"配置（X・Yは常に整数）"));
+  const xInput = el("input",{type:"number", step:"1", inputmode:"numeric", value:d.x, oninput:function(){ d.x = Math.round(parseFloat(this.value)||0); }});
+  const yInput = el("input",{type:"number", step:"1", inputmode:"numeric", value:d.y, oninput:function(){ d.y = Math.round(parseFloat(this.value)||0); }});
+  secPos.appendChild(el("div",{class:"m-row"},[
+    el("div",{class:"m-field"},[ el("label",null,"X"), xInput ]),
+    el("div",{class:"m-field"},[ el("label",null,"Y"), yInput ]),
+  ]));
+  body.appendChild(secPos);
+
+  // 前提条件
+  const secPre = el("div",{class:"m-section"});
+  secPre.appendChild(el("h4",null,"前提条件（各グループはOR、グループ内はAND）"));
+  d.prerequisites.forEach((group, gi)=>{
+    const gWrap = el("div",{style:"background:var(--bg-alt);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px;"});
+    gWrap.appendChild(el("div",{style:"display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"},[
+      el("span",{style:"font-size:10.5px;color:var(--ink-faint);"}, `グループ ${gi+1}${d.prerequisites.length>1?"（OR）":""}`),
+      el("button",{class:"m-btn", style:"height:32px;padding:0 10px;font-size:11px;", onclick:()=>{ d.prerequisites.splice(gi,1); renderEditSheet(); }}, "グループ削除"),
+    ]));
+    const chipWrap = el("div",{class:"chip-wrap"});
+    group.forEach((pid,pi)=> chipWrap.appendChild(el("span",{class:"m-chip"}, [ pid,
+      el("span",{class:"x", onclick:()=>{ group.splice(pi,1); if(!group.length) d.prerequisites.splice(gi,1); renderEditSheet(); }}, "×") ])));
+    gWrap.appendChild(chipWrap);
+    gWrap.appendChild(el("button",{class:"m-btn full", style:"margin-top:4px;", onclick:()=>{
+      openPickerSheet({ title:`グループ ${gi+1} に追加`, mode:"list", options: focusPickerOptions(d.originalId||"__new__"), selected: group,
+        onConfirm:(ids)=>{ d.prerequisites[gi] = ids; if(!ids.length) d.prerequisites.splice(gi,1); renderEditSheet(); } });
+    }}, "＋ NFを選択"));
+    secPre.appendChild(gWrap);
+  });
+  secPre.appendChild(el("button",{class:"m-btn full", onclick:()=>{ d.prerequisites.push([]); renderEditSheet(); }}, "＋ ORグループを追加"));
+  body.appendChild(secPre);
+
+  // 排他条件
+  const secMx = el("div",{class:"m-section"});
+  secMx.appendChild(el("h4",null,"相互排他"));
+  const mxChips = el("div",{class:"chip-wrap"});
+  d.mutexPartners.forEach((pid,pi)=> mxChips.appendChild(el("span",{class:"m-chip mx"}, [ pid,
+    el("span",{class:"x", onclick:()=>{ d.mutexPartners.splice(pi,1); renderEditSheet(); }}, "×") ])));
+  secMx.appendChild(mxChips);
+  secMx.appendChild(el("button",{class:"m-btn full", onclick:()=>{
+    openPickerSheet({ title:"相互排他NFを選択", mode:"list", options: focusPickerOptions(d.originalId||"__new__"), selected: d.mutexPartners,
+      onConfirm:(ids)=>{ d.mutexPartners = ids; renderEditSheet(); } });
+  }}, "＋ 相互排他NFを選択"));
+  body.appendChild(secMx);
+
+  // Localisation
+  const secLoc = el("div",{class:"m-section"});
+  secLoc.appendChild(el("h4",null,"Localisation"));
+  for(const lang of state.project.localisation.languages){
+    const entry = d.loc[lang.code] || (d.loc[lang.code] = {name:"",desc:""});
+    const wrap = el("div",{style:"border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;"});
+    wrap.appendChild(el("div",{style:"font-family:var(--font-head);font-size:12px;color:var(--brass-bright);margin-bottom:6px;"}, lang.label));
+    wrap.appendChild(el("div",{class:"m-field"},[ el("label",null,"表示名"), el("input",{type:"text", value:entry.name, oninput:function(){ entry.name=this.value; }}) ]));
+    wrap.appendChild(el("div",{class:"m-field"},[ el("label",null,"説明"), el("textarea",{oninput:function(){ entry.desc=this.value; }}, entry.desc) ]));
+    secLoc.appendChild(wrap);
+  }
+  body.appendChild(secLoc);
+
+  // 詳細設定（自由記述コード）
+  const secCode = el("div",{class:"m-section"});
+  secCode.appendChild(el("h4",null,"詳細設定（Effect / Trigger 自由記述）"));
+  secCode.appendChild(codeField("completion_reward","completionRewardCode",d));
+  secCode.appendChild(codeField("available","availableCode",d));
+  secCode.appendChild(codeField("bypass","bypassCode",d));
+  secCode.appendChild(codeField("cancel","cancelCode",d));
+  secCode.appendChild(codeField("ai_will_do","aiWillDoCode",d));
+  secCode.appendChild(codeField("will_lead_to_war_with（タグを空白区切り）","willLeadToWarWithCode",d));
+  secCode.appendChild(codeField("search_filters","searchFiltersCode",d));
+  body.appendChild(secCode);
+
+  // ステータス（既存データのバリデーション結果）
+  if(d.mode === "edit"){
+    const secStatus = el("div",{class:"m-section"});
+    secStatus.appendChild(el("h4",null,"ステータス"));
+    const issues = focusIssues(mobileIssues, d.originalId);
+    if(!issues.length) secStatus.appendChild(el("div",{class:"status-item ok"}, "問題は検出されていません"));
+    for(const i of issues) secStatus.appendChild(el("div",{class:"status-item "+i.severity}, i.message));
+    body.appendChild(secStatus);
+  }
+
+  // 削除
+  if(d.mode === "edit"){
+    body.appendChild(el("button",{class:"m-btn danger full", style:"margin-top:8px;", onclick:()=>{
+      const id = d.originalId;
+      closeEditSheet(true);
+      mobileDelete(id);
+    }}, "🗑 このNFを削除"));
+  }
+  root.appendChild(body);
+}
+function codeField(label, key, d){
+  return el("div",{class:"m-field"},[ el("label",null,label), el("textarea",{oninput:function(){ d[key]=this.value; }}, d[key]) ]);
+}
+function saveEditDraft(){
+  const d = editDraft; if(!d) return;
+  const newId = toSafeId(d.id);
+  if(d.mode === "edit" && newId !== d.originalId && focusById(newId)){
+    alert("そのIDは既に使用されています。別のIDを指定してください。");
+    return;
+  }
+  let finalId = newId;
+  commit("save focus", ()=>{
+    const tree = ft();
+    if(d.mode === "create"){
+      finalId = focusById(newId) ? uniqueFocusId(newId) : newId;
+      const f = makeFocus({
+        id:finalId, icon:d.icon, x:Math.round(d.x), y:Math.round(d.y), cost:parseFloat(d.cost)||0, branchId:d.branchId,
+        prerequisites:d.prerequisites.filter(g=>g.length),
+        availableCode:d.availableCode, bypassCode:d.bypassCode, cancelCode:d.cancelCode,
+        completionRewardCode:d.completionRewardCode, aiWillDoCode:d.aiWillDoCode,
+        willLeadToWarWithCode:d.willLeadToWarWithCode, searchFiltersCode:d.searchFiltersCode,
+      });
+      tree.focuses.push(f);
+    } else {
+      if(newId !== d.originalId){
+        const renamed = renameFocusId(d.originalId, newId);
+        finalId = renamed || d.originalId; // pre-checked above, so renamed should not be null
+      } else {
+        finalId = d.originalId;
+      }
+      const f = focusById(finalId);
+      f.icon=d.icon; f.branchId=d.branchId; f.cost=parseFloat(d.cost)||0;
+      f.x=Math.round(d.x); f.y=Math.round(d.y);
+      f.prerequisites = d.prerequisites.filter(g=>g.length);
+      f.availableCode=d.availableCode; f.bypassCode=d.bypassCode; f.cancelCode=d.cancelCode;
+      f.completionRewardCode=d.completionRewardCode; f.aiWillDoCode=d.aiWillDoCode;
+      f.willLeadToWarWithCode=d.willLeadToWarWithCode; f.searchFiltersCode=d.searchFiltersCode;
+    }
+    tree.mutexGroups = tree.mutexGroups.map(g=>({...g, focuses:g.focuses.filter(x=>x!==finalId)})).filter(g=>g.focuses.length>1);
+    if(d.mutexPartners.length) tree.mutexGroups.push({ id:uid("mutex"), focuses:[finalId, ...d.mutexPartners] });
+    state.project.localisation.entries[finalId] = deepClone(d.loc);
+    state.selection = new Set([finalId]);
+    state.activeFocusId = finalId;
+  });
+  editDraft = null;
+  closeSheet("editSheet");
+}
+
+
+/* -------- orthogonal (H/V-only) connector path builder (shared, geometry-agnostic) -------- */
+// Builds a horizontal/vertical-only path: down from A to the vertical
+// midpoint, across to B's column, then down into B. Falls back to a single
+// straight segment when A and B already share a column or a row, so no
+// pointless jog is drawn. Never produces a diagonal segment. Pure function —
+// identical on desktop and mobile; only the anchor *coordinates* fed into it
+// differ (because card pixel size differs), not the routing algorithm.
+function orthogonalPath(ax, ay, bx, by){
+  if(Math.abs(ax-bx) < 0.5 || Math.abs(ay-by) < 0.5) return `M ${ax} ${ay} L ${bx} ${by}`;
+  const midY = (ay+by)/2;
+  return `M ${ax} ${ay} L ${ax} ${midY} L ${bx} ${midY} L ${bx} ${by}`;
+}
+
+/* =========================================================================
+   Menu sheet — consolidates everything the desktop toolbar/sidebar/bottom
+   panel offered, since a phone screen can't show them all at once.
+   ========================================================================= */
+function menuRow(icon, label, sub, onClick){
+  return el("div",{class:"m-list-row", onclick:onClick},[
+    el("span",{class:"icon"}, icon),
+    el("div",{style:"flex:1;min-width:0;"},[ el("div",{class:"lbl"}, label), sub? el("div",{style:"font-size:10.5px;color:var(--ink-faint);"}, sub) : null ]),
+    el("span",{style:"color:var(--ink-faint);font-size:14px;"}, "›"),
+  ]);
+}
+function openMenuSheet(){
+  const root = document.getElementById("menuSheet");
+  clear(root);
+  root.appendChild(el("div",{class:"sheet-handle"}));
+  root.appendChild(el("div",{class:"sheet-header"},[ el("h3",null,"メニュー"), el("button",{class:"icon-btn", onclick:()=>closeSheet("menuSheet")}, "✕") ]));
+  const body = el("div",{class:"sheet-body menu-list"});
+
+  body.appendChild(el("div",{class:"m-field"},[ el("label",null,"プロジェクト名"),
+    el("input",{type:"text", value:state.project.meta.name, onchange:function(){ commit("rename project", ()=>{ state.project.meta.name=this.value; }); renderTopbar(); }}) ]));
+
+  body.appendChild(menuRow("＋","NFを追加","現在の画面中央に配置", ()=>{ closeSheet("menuSheet"); document.getElementById("fab").click(); }));
+  body.appendChild(menuRow("🔍","NFを検索","ID・名称・説明・コードを検索", ()=>{ closeSheet("menuSheet"); openSearchSheet(); }));
+  body.appendChild(menuRow("🗂","ブランチ管理", ft().branches.length+" 件", ()=>{ closeSheet("menuSheet"); openBranchSheet(); }));
+  body.appendChild(menuRow("🖼","アイコン・アセット", state.project.assets.icons.length+" 件のカスタムアイコン", ()=>{ closeSheet("menuSheet"); openAssetSheet(); }));
+  body.appendChild(menuRow("🌐","Localization / .yml読み込み", state.project.localisation.languages.length+" 言語登録済み", ()=>{ closeSheet("menuSheet"); openLocSheet(); }));
+  body.appendChild(menuRow("▦","自動整列","現在の配置を上書きします", ()=>{
+    closeSheet("menuSheet");
+    if(confirm("現在の配置を自動整列で上書きします。よろしいですか？")) commit("auto layout", autoLayout);
+  }));
+  body.appendChild(menuRow("⤢","全体表示に合わせる","", ()=>{ closeSheet("menuSheet"); fitToScreen(); }));
+  body.appendChild(menuRow("🖼️","プレビューをPNGで保存","現在表示中のNFツリーを画像として書き出し", ()=>{ closeSheet("menuSheet"); exportTreePng(); }));
+  body.appendChild(el("h4",{style:"margin:18px 0 6px;font-family:var(--font-head);font-size:10.5px;letter-spacing:.07em;color:var(--ink-faint);"}, "データ"));
+  body.appendChild(menuRow("💾","プロジェクトを保存 (.json)","", ()=>{ closeSheet("menuSheet"); saveProjectFile(); }));
+  body.appendChild(menuRow("📂","プロジェクトを開く (.json)","PC版のJSONもそのまま開けます", ()=>{ closeSheet("menuSheet"); openProjectFilePicker(); }));
+  body.appendChild(menuRow("📥","HOI4コードを読み込む (.txt)","", ()=>{ closeSheet("menuSheet"); openCodeImportPicker(); }));
+  body.appendChild(menuRow("⇩","エクスポート (コード＋Localisation)","common/national_focus・localisation を.zipで出力", ()=>{ closeSheet("menuSheet"); exportBundleMobile(); }));
+  root.appendChild(body);
+  openSheet("menuSheet");
+}
+
+/* =========================================================================
+   Search sheet
+   ========================================================================= */
+function openSearchSheet(){
+  const root = document.getElementById("searchSheet");
+  clear(root);
+  root.appendChild(el("div",{class:"sheet-handle"}));
+  root.appendChild(el("div",{class:"sheet-header"},[ el("h3",null,"NFを検索"), el("button",{class:"icon-btn", onclick:()=>closeSheet("searchSheet")}, "✕") ]));
+  const body = el("div",{class:"sheet-body"});
+  const input = el("input",{id:"searchinput", type:"text", placeholder:"ID・名称・説明・コードなどを検索…"});
+  body.appendChild(input);
+  const results = el("div",{style:"margin-top:8px;"});
+  body.appendChild(results);
+  function run(){
+    const qv = input.value.trim().toLowerCase();
+    clear(results);
+    if(!qv){ results.appendChild(el("p",{class:"m-note"}, "NF ID・表示名・説明・ブランチ名・アイコン名・Effect/Triggerコードを横断検索します。")); return; }
+    const hits = [];
+    for(const f of ft().focuses){
+      const locEntry = state.project.localisation.entries[f.id] || {};
+      const names = Object.values(locEntry).map(l=>(l.name||"")+" "+(l.desc||"")).join(" ");
+      const branch = branchById(f.branchId);
+      const hay = [f.id, f.icon, names, branch?branch.name:"", f.availableCode, f.bypassCode, f.cancelCode, f.completionRewardCode, f.aiWillDoCode].join(" \n ").toLowerCase();
+      if(hay.includes(qv)) hits.push({f, branch});
+    }
+    if(!hits.length){ results.appendChild(el("p",{class:"m-note"}, "一致するNFが見つかりません。")); return; }
+    for(const h of hits){
+      const name = ((state.project.localisation.entries[h.f.id]||{})[state.ui.codeLang]||{}).name || "(名称未設定)";
+      results.appendChild(el("div",{class:"search-result", onclick:()=>{ closeSheet("searchSheet"); focusOnNodeMobile(h.f.id); }},[
+        el("div",{class:"sid"}, h.f.id),
+        el("div",{class:"sname"}, name),
+        el("div",{class:"sctx"}, (h.branch?h.branch.name+" · ":"")+`cost ${h.f.cost}（${costToDays(h.f.cost)}日）`),
+      ]));
+    }
+  }
+  input.addEventListener("input", run);
+  root.appendChild(body);
+  openSheet("searchSheet");
+  setTimeout(()=>{ input.focus(); run(); }, 60);
+}
+function focusOnNodeMobile(id){
+  state.selection = new Set([id]);
+  state.activeFocusId = id;
+  const f = focusById(id);
+  if(f){
+    const b = branchById(f.branchId);
+    if(b) state.ui.hiddenBranches.delete(b.id);
+    const pos = resolveAbsolutePositions(ft())[id];
+    const wrap = document.getElementById("canvaswrap");
+    state.camera.zoom = Math.max(state.camera.zoom, 0.75);
+    state.camera.x = wrap.clientWidth/2 - (pos.x*M_GX+76)*state.camera.zoom;
+    state.camera.y = wrap.clientHeight/2 - (pos.y*M_GY+46)*state.camera.zoom;
+  }
+  renderAll();
+}
+
+/* =========================================================================
+   Branch sheet
+   ========================================================================= */
+function openBranchSheet(){
+  const root = document.getElementById("branchSheet");
+  function draw(){
+    clear(root);
+    root.appendChild(el("div",{class:"sheet-handle"}));
+    root.appendChild(el("div",{class:"sheet-header"},[ el("h3",null,"ブランチ管理"), el("button",{class:"icon-btn", onclick:()=>closeSheet("branchSheet")}, "✕") ]));
+    const body = el("div",{class:"sheet-body"});
+    body.appendChild(el("div",{class:"m-list-row", onclick:()=>{ state.ui.activeBranchFilter=null; renderAll(); draw(); }},[
+      el("span",{class:"swatch", style:"background:var(--ink-faint);"}),
+      el("span",{class:"lbl"}, "すべて表示"+(state.ui.activeBranchFilter===null?"（表示中）":"")),
+      el("span",{class:"cnt"}, String(ft().focuses.length)),
+    ]));
+    for(const b of ft().branches){
+      const count = ft().focuses.filter(f=>f.branchId===b.id).length;
+      const hidden = state.ui.hiddenBranches.has(b.id);
+      const row = el("div",{class:"m-list-row"});
+      row.appendChild(el("span",{class:"swatch", style:`background:${b.color}`}));
+      row.appendChild(el("span",{class:"lbl", onclick:()=>{ state.ui.activeBranchFilter = state.ui.activeBranchFilter===b.id?null:b.id; renderAll(); draw(); }}, b.name+(state.ui.activeBranchFilter===b.id?"（表示中）":"")));
+      row.appendChild(el("span",{class:"cnt"}, String(count)));
+      row.appendChild(el("button",{class:"icon-btn", style:"width:36px;height:36px;", onclick:()=>{ if(hidden) state.ui.hiddenBranches.delete(b.id); else state.ui.hiddenBranches.add(b.id); renderAll(); draw(); }}, hidden?"🚫":"👁"));
+      row.appendChild(el("button",{class:"icon-btn", style:"width:36px;height:36px;", onclick:()=>{
+        const name = prompt("ブランチ名", b.name);
+        if(name===null) return;
+        commit("edit branch", ()=>{ b.name = name.trim() || b.name; });
+        draw();
+      }}, "✎"));
+      body.appendChild(row);
+    }
+    body.appendChild(el("button",{class:"m-btn full", style:"margin-top:10px;", onclick:()=>{
+      commit("add branch", ()=>{ ft().branches.push({ id:uid("branch"), name:"新しいブランチ", color:BRANCH_COLORS[ft().branches.length%BRANCH_COLORS.length], collapsed:false, hidden:false, description:"" }); });
+      draw();
+    }}, "＋ ブランチを追加"));
+    root.appendChild(body);
+  }
+  draw();
+  openSheet("branchSheet");
+}
+
+/* =========================================================================
+   Asset sheet — built-in + custom icons (upload / rename / delete)
+   ========================================================================= */
+function openAssetSheet(){
+  const root = document.getElementById("assetSheet");
+  function draw(){
+    clear(root);
+    root.appendChild(el("div",{class:"sheet-handle"}));
+    root.appendChild(el("div",{class:"sheet-header"},[ el("h3",null,"アイコン・アセット"), el("button",{class:"icon-btn", onclick:()=>closeSheet("assetSheet")}, "✕") ]));
+    const body = el("div",{class:"sheet-body"});
+    body.appendChild(el("h4",null,"ビルトインGFXアイコン"));
+    const grid1 = el("div",{class:"asset-grid"});
+    for(const gfx of BUILTIN_ICONS) grid1.appendChild(assetTile(gfx.replace(/^GFX_/,""), null, gfx));
+    body.appendChild(grid1);
+    body.appendChild(el("h4",{style:"margin-top:16px;"},"カスタムアイコン"));
+    const grid2 = el("div",{class:"asset-grid"});
+    for(const a of state.project.assets.icons){
+      const tile = assetTile(a.name, a.dataUrl, a.gfxName);
+      tile.onclick = ()=>{
+        const name = prompt("アイコン名", a.name); if(name===null) return;
+        const gfx = prompt("GFX名", a.gfxName); if(gfx===null) return;
+        if(confirm("このアイコンを削除しますか？（キャンセルで名前変更のみ適用）")){
+          commit("delete asset", ()=>{ state.project.assets.icons = state.project.assets.icons.filter(x=>x.id!==a.id); });
+        } else {
+          commit("edit asset", ()=>{ a.name=name.trim()||a.name; a.gfxName=gfx.trim()||a.gfxName; });
+        }
+        draw();
+      };
+      grid2.appendChild(tile);
+    }
+    body.appendChild(grid2);
+    const fileInput = el("input",{type:"file", accept:"image/*", multiple:true, style:"display:none", onchange:(e)=> handleAssetUploadMobile(e.target.files, draw)});
+    body.appendChild(el("button",{class:"m-btn full", style:"margin-top:10px;", onclick:()=>fileInput.click()}, "＋ 画像をアップロード"));
+    body.appendChild(fileInput);
+    root.appendChild(body);
+  }
+  draw();
+  openSheet("assetSheet");
+}
+function assetTile(label, dataUrl, gfxName){
+  const t = el("div",{class:"asset-tile", title:gfxName});
+  if(dataUrl) t.appendChild(el("img",{src:dataUrl})); else t.appendChild(el("div",{style:"height:34px;display:flex;align-items:center;justify-content:center;"}, el("span",{style:"font-size:9px;color:var(--ink-faint);"},"GFX")));
+  t.appendChild(el("div",{class:"an"}, label));
+  return t;
+}
+function handleAssetUploadMobile(files, onDone){
+  const list = [...files]; let pending = list.length; const added = [];
+  list.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      added.push({ id:uid("asset"), name:file.name.replace(/\.[^.]+$/,""), gfxName:"GFX_"+file.name.replace(/\.[^.]+$/,"").toLowerCase().replace(/[^a-z0-9]+/g,"_"), dataUrl:reader.result });
+      pending--;
+      if(pending===0){ commit("upload assets", ()=>{ state.project.assets.icons.push(...added); }); onDone(); }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* =========================================================================
+   Localization / .yml sheet — same underlying functions as desktop
+   (parseLocalisationText / mergeLocalisationImport / ensureLanguage /
+   locCoverage); only the markup is mobile.
+   ========================================================================= */
+function openLocSheet(){
+  const root = document.getElementById("locSheet");
+  function draw(){
+    clear(root);
+    root.appendChild(el("div",{class:"sheet-handle"}));
+    root.appendChild(el("div",{class:"sheet-header"},[ el("h3",null,"Localization / .yml"), el("button",{class:"icon-btn", onclick:()=>closeSheet("locSheet")}, "✕") ]));
+    const body = el("div",{class:"sheet-body"});
+
+    body.appendChild(el("h4",null,"表示言語（プレビュー・ツリー表示に反映）"));
+    const displaySel = el("select",{onchange:function(){ state.ui.codeLang=this.value; renderAll(); }});
+    state.project.localisation.languages.forEach(l=> displaySel.appendChild(el("option",{value:l.code, selected:l.code===state.ui.codeLang}, l.label)));
+    body.appendChild(el("div",{class:"m-field"}, displaySel));
+
+    body.appendChild(el("h4",{style:"margin-top:16px;"},"登録済み言語"));
+    for(const lang of state.project.localisation.languages){
+      body.appendChild(el("div",{class:"m-list-row"},[
+        el("span",{class:"lbl"}, `${lang.label}（${lang.code}）`),
+      ]));
+    }
+
+    body.appendChild(el("h4",{style:"margin-top:16px;"},"Localization対応状況"));
+    for(const lang of state.project.localisation.languages){
+      const c = locCoverage(lang.code);
+      body.appendChild(el("div",{class:"coverage-row"},[
+        el("span",null, lang.label),
+        el("span",{style:"font-family:var(--font-mono);"}, `表示名 ${c.named}/${c.total} ・ 説明 ${c.desced}/${c.total}`),
+      ]));
+    }
+
+    body.appendChild(el("h4",{style:"margin-top:16px;"},".ymlファイルを読み込む"));
+    body.appendChild(el("p",{class:"m-note"}, "KEY が NF の内部IDと完全一致した場合のみ反映されます（部分一致はしません）。複数ファイルを選択できます。同じキーは後から読み込んだ内容で上書きされます。"));
+    body.appendChild(el("label",{style:"display:block;font-size:11px;color:var(--ink-faint);margin:8px 0 4px;"}, "このファイルを扱う言語"));
+    const YML_LANG_OPTIONS = [
+      ["", "自動認識（ファイル内の l_<言語>: を使用）"],
+      ["japanese","日本語"], ["english","英語"], ["german","ドイツ語"], ["french","フランス語"],
+      ["spanish","スペイン語"], ["italian","イタリア語"], ["polish","ポーランド語"], ["russian","ロシア語"],
+      ["simp_chinese","中国語（簡体字）"], ["korean","韓国語"], ["__custom__","その他（コード直接入力）"],
+    ];
+    const langSel = el("select");
+    YML_LANG_OPTIONS.forEach(([v,l])=> langSel.appendChild(el("option",{value:v}, l)));
+    body.appendChild(el("div",{class:"m-field"}, langSel));
+    const customInput = el("input",{type:"text", placeholder:"言語コード（例: braz_por）", style:"display:none;"});
+    langSel.addEventListener("change", ()=>{ customInput.style.display = langSel.value==="__custom__" ? "block" : "none"; });
+    body.appendChild(el("div",{class:"m-field"}, customInput));
+
+    const fileInput = el("input",{type:"file", accept:".yml,.yaml,text/plain", multiple:true, style:"display:none"});
+    const reportBox = el("div",{style:"margin-top:8px;"});
+    body.appendChild(el("button",{class:"m-btn full", onclick:()=>fileInput.click()}, "📄 .ymlファイルを選択"));
+    body.appendChild(fileInput);
+    body.appendChild(reportBox);
+    fileInput.addEventListener("change", ()=>{
+      const files = [...fileInput.files];
+      if(!files.length) return;
+      let forceLangKey = langSel.value || null;
+      if(forceLangKey === "__custom__"){
+        forceLangKey = customInput.value.trim();
+        if(!forceLangKey){ alert("言語コードを入力してください。"); return; }
+      }
+      importYmlFilesMobile(files, reportBox, forceLangKey, draw);
+    });
+    root.appendChild(body);
+  }
+  draw();
+  openSheet("locSheet");
+}
+function importYmlFilesMobile(files, reportBox, forceLangKey, onDone){
+  let pending = files.length;
+  const allStats = [];
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      let stats=null, error=null;
+      try{
+        const parsedByLang = parseLocalisationText(String(reader.result), forceLangKey||null);
+        if(!Object.keys(parsedByLang).length){
+          error = forceLangKey ? "有効な行が見つかりませんでした。" : "l_<言語>: ブロックが見つかりません。言語を手動指定してください。";
+        } else {
+          commit("import yml: "+file.name, ()=>{ stats = mergeLocalisationImport(parsedByLang); });
+        }
+      }catch(e){ error = e.message; }
+      allStats.push({name:file.name, stats, error});
+      pending--;
+      if(pending===0){
+        clear(reportBox);
+        for(const s of allStats){
+          const wrap = el("div",{class:"import-report"});
+          wrap.appendChild(el("div",{class:"fn"}, s.name));
+          if(s.error) wrap.appendChild(el("div",{style:"color:var(--red-bright);"}, "✕ "+s.error));
+          else for(const lk in s.stats.languages){
+            const ls = s.stats.languages[lk];
+            wrap.appendChild(el("div",{style:"color:var(--ink-dim);"}, `${labelForLangKey(lk)}: ${ls.keys}キー中 一致${ls.matched} / 未対応${ls.unmatched}`));
+          }
+          reportBox.appendChild(wrap);
+        }
+        onDone();
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+/* =========================================================================
+   File I/O — JSON project save/load, HOI4 code import, export bundle.
+   Uses the same downloads-capability wrapper pattern as the desktop build.
+   ========================================================================= */
+let downloadsNS = null;
+async function initDownloads(){
+  try{ downloadsNS = await claude.use("downloads"); }catch(e){ downloadsNS = null; }
+}
+async function offerDownload(filename, data){
+  if(downloadsNS){
+    try{ await downloadsNS.save({ filename, data }); return; }
+    catch(err){ if(err && err.code==="declined") return; }
+  }
+  try{
+    const blob = typeof data==="string" ? new Blob([data], {type:"text/plain;charset=utf-8"}) : data;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+  }catch(e){ alert("ダウンロードできませんでした: "+e.message); }
+}
+function saveProjectFile(){
+  offerDownload((ft().id||"project")+".json", JSON.stringify(state.project, null, 2));
+}
+function openProjectFilePicker(){
+  const input = el("input",{type:"file", accept:".json,application/json", style:"display:none", onchange:()=>{
+    const file = input.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!parsed.focusTree) throw new Error("focusTree が見つかりません");
+        pushHistory();
+        state.project = Object.assign(makeEmptyProject(), parsed);
+        sanitizeCoordinates(state.project.focusTree);
+        state.selection = new Set(); state.activeFocusId = null;
+        onProjectChanged();
+        fitToScreen();
+      }catch(err){ alert("読み込みに失敗しました: "+err.message); }
+    };
+    reader.readAsText(file, "utf-8");
+  }});
+  document.body.appendChild(input); input.click(); setTimeout(()=>input.remove(), 3000);
+}
+function openCodeImportPicker(){
+  const input = el("input",{type:"file", accept:".txt,text/plain", style:"display:none", onchange:()=>{
+    const file = input.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const res = parseFocusTreeText(String(reader.result));
+      if(!res.ok){ alert("インポートに失敗しました: "+res.error); return; }
+      commit("import code", ()=>{
+        const oldLoc = deepClone(state.project.localisation);
+        state.project.focusTree = res.tree;
+        const kept = {};
+        for(const f of res.tree.focuses) if(oldLoc.entries[f.id]) kept[f.id] = oldLoc.entries[f.id];
+        state.project.localisation.entries = kept;
+        for(const f of res.tree.focuses) if(!state.project.localisation.entries[f.id]) state.project.localisation.entries[f.id] = {};
+        state.selection = new Set(); state.activeFocusId = null;
+      });
+      if(res.warnings.length) alert(`インポート完了（警告 ${res.warnings.length} 件）\n` + res.warnings.slice(0,5).map(w=>`・${w.target}: ${w.reason}`).join("\n"));
+      fitToScreen();
+    };
+    reader.readAsText(file, "utf-8");
+  }});
+  document.body.appendChild(input); input.click(); setTimeout(()=>input.remove(), 3000);
+}
+async function exportBundleMobile(){
+  if(typeof JSZip === "undefined"){ alert("エクスポート機能の読み込みに失敗しました。ネットワーク設定をご確認ください。"); return; }
+  const zip = new JSZip();
+  const treeId = ft().id || "focus_tree";
+  zip.file(`common/national_focus/${treeId}.txt`, "\uFEFF" + generateFocusTreeCode(state.project));
+  const all = generateLocalisationCodeAll(state.project);
+  for(const langCode in all) zip.file(`localisation/${pdxLangKey(langCode)}/${treeId}_l_${pdxLangKey(langCode)}.yml`, "\uFEFF" + all[langCode]);
+  zip.file(`${treeId}.project.json`, JSON.stringify(state.project, null, 2));
+  const blob = await zip.generateAsync({ type:"blob" });
+  offerDownload(treeId+"_export.zip", blob);
+}
+
+/* =========================================================================
+   PNG export — rasterizes the current tree (respecting the active branch
+   filter / hidden branches, exactly like the on-screen preview) with a
+   dedicated Canvas 2D renderer, so the exported image never depends on
+   whatever happens to be scrolled into view on screen.
+   ========================================================================= */
+async function exportTreePng(){
+  const tree = ft();
+  const visible = visibleFocuses();
+  if(!visible.length){ alert("書き出すNFがありません。"); return; }
+  try{ if(document.fonts && document.fonts.ready) await document.fonts.ready; }catch(e){}
+  const pos = resolveAbsolutePositions(tree);
+  const NW = 152, NH = 92; // must match .mnode's on-screen size
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const f of visible){
+    const p = pos[f.id];
+    minX = Math.min(minX, p.x*M_GX); maxX = Math.max(maxX, p.x*M_GX+NW);
+    minY = Math.min(minY, p.y*M_GY); maxY = Math.max(maxY, p.y*M_GY+NH);
+  }
+  const margin = 60;
+  const w = Math.ceil(maxX-minX+margin*2), h = Math.ceil(maxY-minY+margin*2);
+  const scale = 2; // render at 2x for a crisp image
+  const canvas = document.createElement("canvas");
+  canvas.width = w*scale; canvas.height = h*scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  const ox = margin-minX, oy = margin-minY; // offsets: grid space -> canvas space
+
+  // background
+  ctx.fillStyle = "#11151b";
+  ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  for(let gx=0; gx<w; gx+=24){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,h); ctx.stroke(); }
+  for(let gy=0; gy<h; gy+=24){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(w,gy); ctx.stroke(); }
+
+  const visibleIds = new Set(visible.map(f=>f.id));
+  // connections first (they render beneath the cards, same as on screen)
+  function drawPath(d, color, dashed){
+    const cmds = d.match(/[ML]\s*[-\d.]+\s+[-\d.]+/g) || [];
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.setLineDash(dashed ? [6,4] : []);
+    ctx.beginPath();
+    let first = true;
+    for(const c of cmds){
+      const m = c.match(/([ML])\s*([-\d.]+)\s+([-\d.]+)/);
+      if(!m) continue;
+      const x = parseFloat(m[2])+ox, y = parseFloat(m[3])+oy;
+      if(first){ ctx.moveTo(x,y); first=false; } else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+  for(const f of visible){
+    if(!f.prerequisites.length) continue;
+    f.prerequisites.forEach(group=>{
+      group.forEach(fromId=>{
+        if(!visibleIds.has(fromId)) return;
+        const fp = pos[fromId]; if(!fp) return;
+        const { ax, ay, bx, by } = mobileAnchors(fp, pos[f.id]);
+        drawPath(orthogonalPath(ax,ay,bx,by), "#eef1f5", group.length>1);
+      });
+    });
+  }
+  const drawnPairs = new Set();
+  for(const g of tree.mutexGroups){
+    for(let i=0;i<g.focuses.length;i++) for(let j=i+1;j<g.focuses.length;j++){
+      const a=g.focuses[i], b=g.focuses[j];
+      if(!visibleIds.has(a)||!visibleIds.has(b)) continue;
+      const key=[a,b].sort().join("|"); if(drawnPairs.has(key)) continue; drawnPairs.add(key);
+      const { ax, ay, bx, by } = mobileAnchors(pos[a], pos[b]);
+      drawPath(orthogonalPath(ax,ay,bx,by), "#e2694f", true);
+    }
+  }
+
+  // preload custom icon images used by visible nodes
+  const iconImgs = {};
+  await Promise.all(visible.map(f=>{
+    const asset = state.project.assets.icons.find(a=>a.gfxName===f.icon);
+    if(!asset || iconImgs[f.icon]) return null;
+    return new Promise(res=>{
+      const img = new Image();
+      img.onload = ()=>{ iconImgs[f.icon]=img; res(); };
+      img.onerror = ()=> res();
+      img.src = asset.dataUrl;
+    });
+  }));
+
+  // cards on top of the connection lines
+  for(const f of visible){
+    const p = pos[f.id];
+    const x = p.x*M_GX+ox, y = p.y*M_GY+oy;
+    const branch = branchById(f.branchId);
+    const locEntry = (state.project.localisation.entries[f.id]||{})[state.ui.codeLang] || (Object.values(state.project.localisation.entries[f.id]||{})[0]) || {};
+    // card
+    roundRect(ctx, x, y, NW, NH, 10);
+    const grad = ctx.createLinearGradient(x,y,x,y+NH);
+    grad.addColorStop(0, "#1f2733"); grad.addColorStop(1, "#1a212b");
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#2a3341"; ctx.stroke();
+    // icon box
+    roundRect(ctx, x+11, y+10, 30, 30, 6);
+    ctx.fillStyle = "#161b22"; ctx.fill(); ctx.strokeStyle="#2a3341"; ctx.lineWidth=1; ctx.stroke();
+    if(iconImgs[f.icon]) ctx.drawImage(iconImgs[f.icon], x+13, y+12, 26, 26);
+    // branch dot
+    if(branch){ ctx.fillStyle = branch.color; ctx.beginPath(); ctx.arc(x+NW-17, y+16, 4, 0, Math.PI*2); ctx.fill(); }
+    // title
+    ctx.fillStyle = "#d9dee6"; ctx.font = "600 13px Inter, sans-serif"; ctx.textBaseline="top";
+    wrapText(ctx, locEntry.name || f.id, x+11, y+49, NW-22, 15, 2);
+    // id
+    ctx.fillStyle = "#5c6675"; ctx.font = "9px 'IBM Plex Mono', monospace";
+    ctx.fillText(truncate(ctx, f.id, NW-22), x+11, y+77);
+    // cost
+    ctx.fillStyle = "#e6b95c"; ctx.font = "11px 'IBM Plex Mono', monospace";
+    ctx.fillText("⏱ "+costToDays(f.cost)+"日", x+11, y+NH-19);
+  }
+
+  canvas.toBlob(blob=>{
+    if(!blob){ alert("画像の生成に失敗しました。"); return; }
+    offerDownload((tree.id||"focus_tree")+"_preview.png", blob);
+  }, "image/png");
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function truncate(ctx, text, maxW){
+  if(ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while(t.length>1 && ctx.measureText(t+"…").width > maxW) t = t.slice(0,-1);
+  return t+"…";
+}
+function wrapText(ctx, text, x, y, maxW, lineH, maxLines){
+  const words = String(text).split("");
+  let line = "", lines = [];
+  for(const ch of words){
+    const test = line+ch;
+    if(ctx.measureText(test).width > maxW && line){ lines.push(line); line = ch; if(lines.length===maxLines-1){} }
+    else line = test;
+    if(lines.length >= maxLines) break;
+  }
+  if(line && lines.length < maxLines) lines.push(line);
+  if(lines.length === maxLines){
+    let last = lines[maxLines-1];
+    while(last.length>1 && ctx.measureText(last+"…").width > maxW) last = last.slice(0,-1);
+    lines[maxLines-1] = last + (ctx.measureText(text).width>maxW?"…":"");
+  }
+  lines.forEach((l,i)=> ctx.fillText(l, x, y+i*lineH));
+}
+
+/* =========================================================================
+   Autosave + init
+   ========================================================================= */
+const AUTOSAVE_KEY = "focusforge_mobile_autosave_v1";
+const scheduleAutosave = debounce(()=>{
+  try{ localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ project: state.project, savedAt: Date.now() })); }catch(e){}
+}, 900);
+function tryLoadAutosave(){
+  try{
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    if(parsed && parsed.project && parsed.project.focusTree) return parsed;
+  }catch(e){}
+  return null;
+}
+function init(){
+  initDownloads();
+  setupViewportUnit();
+  const saved = tryLoadAutosave();
+  state.project = saved ? Object.assign(makeEmptyProject(), saved.project) : seedProject();
+  sanitizeCoordinates(state.project.focusTree);
+  if(!state.project.localisation.languages.some(l=>l.code===state.ui.codeLang)){
+    state.ui.codeLang = (state.project.localisation.languages[0]||{}).code || "japanese";
+  }
+  setupGestures();
+  setupFab();
+  document.getElementById("scrim").addEventListener("click", closeAllSheets);
+  window.addEventListener("resize", ()=> renderCanvasTransform());
+  renderAll();
+  fitToScreen();
+  state.ready = true;
+}
+document.addEventListener("DOMContentLoaded", init);
+
+</script>
+</body>
+</html>
