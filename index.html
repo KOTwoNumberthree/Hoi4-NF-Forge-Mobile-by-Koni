@@ -229,8 +229,6 @@ button,input,select,textarea{ font-family:inherit; color:inherit; }
 <div class="sheet" id="locSheet"></div>
 <div class="sheet" id="assetSheet"></div>
 <div class="sheet" id="pickerSheet"></div>
-<div class="sheet fullscreen" id="codeSheet"></div>
-<div class="sheet" id="exportSheet"></div>
 
 <script>
 "use strict";
@@ -341,31 +339,6 @@ function makeEmptyProject(){
     assets: { icons: [] },
     settings: { gridX: 90, gridY: 118 },
   };
-}
-
-function normalizeProject(parsed){
-  const base = makeEmptyProject();
-  if(!parsed || typeof parsed !== "object") throw new Error("JSONプロジェクトが不正です。");
-  const project = Object.assign(base, parsed);
-  project.meta = Object.assign(base.meta, parsed.meta || {});
-  project.focusTree = Object.assign(base.focusTree, parsed.focusTree || {});
-  project.focusTree.focuses = Array.isArray(parsed.focusTree && parsed.focusTree.focuses) ? parsed.focusTree.focuses : [];
-  project.focusTree.branches = Array.isArray(parsed.focusTree && parsed.focusTree.branches) ? parsed.focusTree.branches : [];
-  project.focusTree.mutexGroups = Array.isArray(parsed.focusTree && parsed.focusTree.mutexGroups) ? parsed.focusTree.mutexGroups : [];
-  project.localisation = Object.assign(base.localisation, parsed.localisation || {});
-  project.localisation.languages = Array.isArray(project.localisation.languages) && project.localisation.languages.length ? project.localisation.languages : deepClone(base.localisation.languages);
-  project.localisation.entries = project.localisation.entries && typeof project.localisation.entries === "object" ? project.localisation.entries : {};
-  project.assets = Object.assign(base.assets, parsed.assets || {});
-  project.assets.icons = Array.isArray(project.assets.icons) ? project.assets.icons : [];
-  project.settings = Object.assign(base.settings, parsed.settings || {});
-  for(const f of project.focusTree.focuses){
-    const d = makeFocus({});
-    for(const k of Object.keys(d)) if(!(k in f)) f[k] = deepClone(d[k]);
-    f.x = Math.round(Number(f.x) || 0); f.y = Math.round(Number(f.y) || 0);
-    if(!Array.isArray(f.prerequisites)) f.prerequisites=[];
-    if(!Array.isArray(f.extraFields)) f.extraFields=[];
-  }
-  return project;
 }
 
 function makeFocus(overrides){
@@ -1121,7 +1094,7 @@ function setupViewportUnit(){
 }
 
 /* -------- generic sheet (bottom sheet / fullscreen sheet) plumbing -------- */
-const SHEET_IDS = ["menuSheet","searchSheet","editSheet","branchSheet","locSheet","assetSheet","pickerSheet","codeSheet","exportSheet"];
+const SHEET_IDS = ["menuSheet","searchSheet","editSheet","branchSheet","locSheet","assetSheet","pickerSheet"];
 function openSheet(id){
   document.getElementById("scrim").classList.add("show");
   document.getElementById(id).classList.add("show");
@@ -1307,13 +1280,11 @@ function renderCtxbar(){
   if(!f){ bar.classList.remove("show"); document.documentElement.style.setProperty("--ctxbar-h","0px"); fab.classList.remove("raised"); return; }
   const locEntry = (state.project.localisation.entries[f.id]||{})[state.ui.codeLang] || {};
   bar.appendChild(el("div",{class:"ctx-info"},[ el("div",{class:"cn"}, locEntry.name || f.id), el("div",{class:"ci"}, f.id) ]));
-  if(!state.ui.previewMode){
-    bar.appendChild(ctxBtn("✎","編集", ()=>openEditSheet(f.id)));
-    bar.appendChild(ctxBtn("⧉","複製", ()=>mobileDuplicate(f.id)));
-    bar.appendChild(ctxBtn("🔗","前提", ()=>openPrereqQuickPicker(f.id)));
-    bar.appendChild(ctxBtn("⛔","排他", ()=>openMutexPicker(f.id)));
-    bar.appendChild(ctxBtn("🗑","削除", ()=>mobileDelete(f.id), true));
-  }
+  bar.appendChild(ctxBtn("✎","編集", ()=>openEditSheet(f.id)));
+  bar.appendChild(ctxBtn("⧉","複製", ()=>mobileDuplicate(f.id)));
+  bar.appendChild(ctxBtn("🔗","前提", ()=>openPrereqQuickPicker(f.id)));
+  bar.appendChild(ctxBtn("⛔","排他", ()=>openMutexPicker(f.id)));
+  bar.appendChild(ctxBtn("🗑","削除", ()=>mobileDelete(f.id), true));
   bar.appendChild(ctxBtn("✕","閉じる", ()=>{ state.selection=new Set(); state.activeFocusId=null; renderAll(); }));
   bar.classList.add("show");
   fab.classList.add("raised");
@@ -1638,7 +1609,7 @@ function openEditSheet(focusId, presetPos){
     const src = focusById(focusId);
     draft = {
       mode:"edit", originalId:focusId, id:src.id, icon:src.icon, branchId:src.branchId, cost:src.cost,
-      x:src.x, y:src.y, relativePositionId:src.relativePositionId || "", prerequisites: deepClone(src.prerequisites), mutexPartners: mutexPartnersOf(focusId),
+      x:src.x, y:src.y, prerequisites: deepClone(src.prerequisites), mutexPartners: mutexPartnersOf(focusId),
       availableCode:src.availableCode, bypassCode:src.bypassCode, cancelCode:src.cancelCode,
       completionRewardCode:src.completionRewardCode, aiWillDoCode:src.aiWillDoCode,
       willLeadToWarWithCode:src.willLeadToWarWithCode, searchFiltersCode:src.searchFiltersCode,
@@ -1648,7 +1619,7 @@ function openEditSheet(focusId, presetPos){
     draft = {
       mode:"create", originalId:null, id: uniqueFocusId("NEW_FOCUS"), icon:"GFX_goal_generic_national_focus",
       branchId: state.ui.activeBranchFilter || (ft().branches[0] && ft().branches[0].id) || "",
-      cost:10, x:(presetPos&&presetPos.x)||0, y:(presetPos&&presetPos.y)||0, relativePositionId:"",
+      cost:10, x:(presetPos&&presetPos.x)||0, y:(presetPos&&presetPos.y)||0,
       prerequisites:[], mutexPartners:[],
       availableCode:"", bypassCode:"", cancelCode:"", completionRewardCode:"", aiWillDoCode:"",
       willLeadToWarWithCode:"", searchFiltersCode:"",
@@ -1724,12 +1695,6 @@ function renderEditSheet(){
     el("div",{class:"m-field"},[ el("label",null,"X"), xInput ]),
     el("div",{class:"m-field"},[ el("label",null,"Y"), yInput ]),
   ]));
-  const relSel = el("select");
-  relSel.appendChild(el("option",{value:""},"(なし — 絶対座標)"));
-  for(const o of ft().focuses) if(o.id!==d.originalId) relSel.appendChild(el("option",{value:o.id, selected:d.relativePositionId===o.id}, o.id));
-  relSel.addEventListener("change", ()=>{ d.relativePositionId = relSel.value; });
-  secPos.appendChild(el("div",{class:"m-field"},[el("label",null,"relative_position_id（基準NF）"),relSel,
-    el("div",{class:"m-note"},"設定時、X/Yは基準NFからの相対座標としてHOI4コードへ出力されます。") ]));
   body.appendChild(secPos);
 
   // 前提条件
@@ -1828,7 +1793,7 @@ function saveEditDraft(){
     if(d.mode === "create"){
       finalId = focusById(newId) ? uniqueFocusId(newId) : newId;
       const f = makeFocus({
-        id:finalId, icon:d.icon, x:Math.round(d.x), y:Math.round(d.y), cost:parseFloat(d.cost)||0, relativePositionId:d.relativePositionId || "", branchId:d.branchId,
+        id:finalId, icon:d.icon, x:Math.round(d.x), y:Math.round(d.y), cost:parseFloat(d.cost)||0, branchId:d.branchId,
         prerequisites:d.prerequisites.filter(g=>g.length),
         availableCode:d.availableCode, bypassCode:d.bypassCode, cancelCode:d.cancelCode,
         completionRewardCode:d.completionRewardCode, aiWillDoCode:d.aiWillDoCode,
@@ -1844,7 +1809,7 @@ function saveEditDraft(){
       }
       const f = focusById(finalId);
       f.icon=d.icon; f.branchId=d.branchId; f.cost=parseFloat(d.cost)||0;
-      f.x=Math.round(d.x); f.y=Math.round(d.y); f.relativePositionId=d.relativePositionId || "";
+      f.x=Math.round(d.x); f.y=Math.round(d.y);
       f.prerequisites = d.prerequisites.filter(g=>g.length);
       f.availableCode=d.availableCode; f.bypassCode=d.bypassCode; f.cancelCode=d.cancelCode;
       f.completionRewardCode=d.completionRewardCode; f.aiWillDoCode=d.aiWillDoCode;
@@ -1874,49 +1839,6 @@ function orthogonalPath(ax, ay, bx, by){
   return `M ${ax} ${ay} L ${ax} ${midY} L ${bx} ${midY} L ${bx} ${by}`;
 }
 
-function openCodeSheet(){
-  const root=document.getElementById("codeSheet"); clear(root);
-  root.appendChild(el("div",{class:"sheet-handle"}));
-  root.appendChild(el("div",{class:"sheet-header"},[
-    el("button",{class:"icon-btn",onclick:()=>closeSheet("codeSheet")},"✕"),
-    el("h3",null,"生成コード / 検証")
-  ]));
-  const body=el("div",{class:"sheet-body"});
-  const issues=validateProject(state.project);
-  const errors=issues.filter(i=>i.severity==="error"), warns=issues.filter(i=>i.severity==="warn");
-  body.appendChild(el("div",{class:"status-item "+(errors.length?"err":warns.length?"warn":"ok")},
-    errors.length?`エラー ${errors.length} 件 / 警告 ${warns.length} 件`:warns.length?`エラー 0 件 / 警告 ${warns.length} 件`:"検証上の問題はありません"));
-  const code=el("textarea",{style:"width:100%;min-height:280px;font-family:var(--font-mono);font-size:11.5px;background:var(--bg-alt);border:1px solid var(--line);border-radius:8px;padding:12px;line-height:1.5;",readonly:true},generateFocusTreeCode(state.project));
-  body.appendChild(el("div",{class:"m-section"},[el("h4",null,"focus_tree コード"),code,
-    el("button",{class:"m-btn full",style:"margin-top:8px;",onclick:()=>navigator.clipboard?.writeText(code.value).then(()=>alert("コードをコピーしました。"))},"📋 コードをコピー") ]));
-  const issueWrap=el("div",{class:"m-section"}); issueWrap.appendChild(el("h4",null,"検証結果"));
-  if(!issues.length) issueWrap.appendChild(el("div",{class:"status-item ok"},"問題はありません。"));
-  else for(const i of issues.slice(0,100)) issueWrap.appendChild(el("div",{class:"status-item "+i.severity,onclick:()=>{if(i.focusId){closeSheet("codeSheet"); state.selection=new Set([i.focusId]); state.activeFocusId=i.focusId; renderAll();}}}, i.message));
-  body.appendChild(issueWrap);
-  const importBox=el("div",{class:"m-section"}); importBox.appendChild(el("h4",null,"HOI4コードを貼り付けて読み込む"));
-  const ta=el("textarea",{placeholder:"focus_tree = { ... }",style:"width:100%;min-height:180px;font-family:var(--font-mono);font-size:11.5px;background:var(--bg-alt);border:1px solid var(--line);border-radius:8px;padding:12px;line-height:1.5;"});
-  importBox.appendChild(ta); importBox.appendChild(el("button",{class:"m-btn primary full",style:"margin-top:8px;",onclick:()=>{
-    const res=parseFocusTreeText(ta.value); if(!res.ok){alert(res.error);return;}
-    if(!confirm("現在のNFツリーを置き換えます。よろしいですか？")) return;
-    commit("import code",()=>{ state.project.focusTree=res.tree; for(const f of res.tree.focuses) if(!state.project.localisation.entries[f.id]) state.project.localisation.entries[f.id]={}; state.selection=new Set(); state.activeFocusId=null; });
-    fitToScreen(); closeSheet("codeSheet");
-    if(res.warnings.length) alert("インポート完了（警告 "+res.warnings.length+"件）\\n"+res.warnings.slice(0,8).map(w=>"・"+w.reason).join("\\n"));
-  }},"⬇ 貼り付け内容を適用")); body.appendChild(importBox);
-  root.appendChild(body); openSheet("codeSheet");
-}
-function openExportSheet(){
-  const root=document.getElementById("exportSheet"); clear(root);
-  root.appendChild(el("div",{class:"sheet-handle"}));
-  root.appendChild(el("div",{class:"sheet-header"},[el("button",{class:"icon-btn",onclick:()=>closeSheet("exportSheet")},"✕"),el("h3",null,"HOI4用にエクスポート") ]));
-  const body=el("div",{class:"sheet-body"});
-  const issues=validateProject(state.project); const ec=issues.filter(i=>i.severity==="error").length;
-  if(ec) body.appendChild(el("div",{class:"status-item err"},`⚠ エラー ${ec} 件。エクスポート自体は可能ですが、検証結果を確認してください。`));
-  const code=el("input",{type:"checkbox",checked:true}), loc=el("input",{type:"checkbox",checked:true}), proj=el("input",{type:"checkbox",checked:true});
-  for(const [cb,label] of [[code,"focus_treeコード"],[loc,"Localisation（全言語）"],[proj,"プロジェクトJSON（再編集用）"]]) body.appendChild(el("label",{style:"display:flex;align-items:center;gap:10px;min-height:52px;border-bottom:1px solid var(--line-soft);"},[cb,label]));
-  body.appendChild(el("button",{class:"m-btn primary full",style:"margin-top:16px;",onclick:async()=>{closeSheet("exportSheet");await exportBundleMobile({code:code.checked,loc:loc.checked,proj:proj.checked});}},"⇩ ZIPを書き出す"));
-  root.appendChild(body); openSheet("exportSheet");
-}
-
 /* =========================================================================
    Menu sheet — consolidates everything the desktop toolbar/sidebar/bottom
    panel offered, since a phone screen can't show them all at once.
@@ -1939,16 +1861,10 @@ function openMenuSheet(){
     el("input",{type:"text", value:state.project.meta.name, onchange:function(){ commit("rename project", ()=>{ state.project.meta.name=this.value; }); renderTopbar(); }}) ]));
 
   body.appendChild(menuRow("＋","NFを追加","現在の画面中央に配置", ()=>{ closeSheet("menuSheet"); document.getElementById("fab").click(); }));
-  body.appendChild(menuRow("✦","新規プロジェクト","現在のプロジェクトを破棄して白紙から開始", ()=>{
-    if(!confirm("現在のプロジェクトを破棄して新規作成します。よろしいですか？")) return;
-    commit("new project",()=>{ state.project=makeEmptyProject(); state.selection=new Set(); state.activeFocusId=null; });
-    closeSheet("menuSheet"); fitToScreen();
-  }));
   body.appendChild(menuRow("🔍","NFを検索","ID・名称・説明・コードを検索", ()=>{ closeSheet("menuSheet"); openSearchSheet(); }));
   body.appendChild(menuRow("🗂","ブランチ管理", ft().branches.length+" 件", ()=>{ closeSheet("menuSheet"); openBranchSheet(); }));
   body.appendChild(menuRow("🖼","アイコン・アセット", state.project.assets.icons.length+" 件のカスタムアイコン", ()=>{ closeSheet("menuSheet"); openAssetSheet(); }));
   body.appendChild(menuRow("🌐","Localization / .yml読み込み", state.project.localisation.languages.length+" 言語登録済み", ()=>{ closeSheet("menuSheet"); openLocSheet(); }));
-  body.appendChild(menuRow("⌘","生成コード / 検証","コード確認・検証・貼り付けインポート", ()=>{ closeSheet("menuSheet"); openCodeSheet(); }));
   body.appendChild(menuRow("▦","自動整列","現在の配置を上書きします", ()=>{
     closeSheet("menuSheet");
     if(confirm("現在の配置を自動整列で上書きします。よろしいですか？")) commit("auto layout", autoLayout);
@@ -1959,7 +1875,7 @@ function openMenuSheet(){
   body.appendChild(menuRow("💾","プロジェクトを保存 (.json)","", ()=>{ closeSheet("menuSheet"); saveProjectFile(); }));
   body.appendChild(menuRow("📂","プロジェクトを開く (.json)","PC版のJSONもそのまま開けます", ()=>{ closeSheet("menuSheet"); openProjectFilePicker(); }));
   body.appendChild(menuRow("📥","HOI4コードを読み込む (.txt)","", ()=>{ closeSheet("menuSheet"); openCodeImportPicker(); }));
-  body.appendChild(menuRow("⇩","HOI4用にエクスポート","コード・Localisation・JSONを選択して.zip出力", ()=>{ closeSheet("menuSheet"); openExportSheet(); }));
+  body.appendChild(menuRow("⇩","エクスポート (コード＋Localisation)","common/national_focus・localisation を.zipで出力", ()=>{ closeSheet("menuSheet"); exportBundleMobile(); }));
   root.appendChild(body);
   openSheet("menuSheet");
 }
@@ -2257,7 +2173,7 @@ function openProjectFilePicker(){
         const parsed = JSON.parse(reader.result);
         if(!parsed.focusTree) throw new Error("focusTree が見つかりません");
         pushHistory();
-        state.project = normalizeProject(parsed);
+        state.project = Object.assign(makeEmptyProject(), parsed);
         sanitizeCoordinates(state.project.focusTree);
         state.selection = new Set(); state.activeFocusId = null;
         onProjectChanged();
@@ -2291,17 +2207,14 @@ function openCodeImportPicker(){
   }});
   document.body.appendChild(input); input.click(); setTimeout(()=>input.remove(), 3000);
 }
-async function exportBundleMobile(opts){
+async function exportBundleMobile(){
   if(typeof JSZip === "undefined"){ alert("エクスポート機能の読み込みに失敗しました。ネットワーク設定をご確認ください。"); return; }
   const zip = new JSZip();
   const treeId = ft().id || "focus_tree";
-  opts = opts || {code:true,loc:true,proj:true};
-  if(opts.code) zip.file(`common/national_focus/${treeId}.txt`, "\uFEFF" + generateFocusTreeCode(state.project));
-  if(opts.loc){
-    const all = generateLocalisationCodeAll(state.project);
-    for(const langCode in all) zip.file(`localisation/${pdxLangKey(langCode)}/${treeId}_l_${pdxLangKey(langCode)}.yml`, "\uFEFF" + all[langCode]);
-  }
-  if(opts.proj) zip.file(`${treeId}.project.json`, JSON.stringify(state.project, null, 2));
+  zip.file(`common/national_focus/${treeId}.txt`, "\uFEFF" + generateFocusTreeCode(state.project));
+  const all = generateLocalisationCodeAll(state.project);
+  for(const langCode in all) zip.file(`localisation/${pdxLangKey(langCode)}/${treeId}_l_${pdxLangKey(langCode)}.yml`, "\uFEFF" + all[langCode]);
+  zip.file(`${treeId}.project.json`, JSON.stringify(state.project, null, 2));
   const blob = await zip.generateAsync({ type:"blob" });
   offerDownload(treeId+"_export.zip", blob);
 }
