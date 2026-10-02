@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Focus Forge Mobile — HOI4 NFツリーエディタ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -22,12 +22,23 @@
   box-sizing:border-box;
 }
 *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-html,body{ height:100%; margin:0; overscroll-behavior:none; }
+html,body{ height:100%; margin:0; overscroll-behavior:none; overflow:hidden; }
+html{ position:fixed; inset:0; width:100%; } /* belt-and-braces: the document itself can never scroll */
 body{
   font-family:var(--font-body); background:var(--bg); color:var(--ink);
+  position:fixed; inset:0; width:100%;
   height:100dvh; height:var(--app-vh, 100dvh);
   overflow:hidden; font-size:14px; -webkit-font-smoothing:antialiased;
   touch-action:none; /* the canvas owns all gesture handling */
+}
+/* Everything fixed-position lives inside this one root so a single
+   visualViewport-driven transform (see setupViewportUnit in the script)
+   can compensate all of it at once if a mobile browser ever shifts the
+   layout viewport to clear the on-screen keyboard — without this, fixed
+   UI can appear to "jump" even though nothing here should ever move. */
+#viewportRoot{
+  position:fixed; inset:0;
+  height:100dvh; height:var(--app-vh, 100dvh);
 }
 button,input,select,textarea{ font-family:inherit; color:inherit; }
 ::selection{ background:var(--brass); color:#1a1408; }
@@ -158,9 +169,9 @@ button,input,select,textarea{ font-family:inherit; color:inherit; }
 .m-field label{ display:block; font-size:11.5px; color:var(--ink-faint); margin-bottom:5px; }
 .m-field input[type=text], .m-field input[type=number], .m-field select, .m-field textarea{
   width:100%; background:var(--bg-alt); border:1px solid var(--line); border-radius:8px;
-  padding:12px 12px; color:var(--ink); font-size:15px; min-height:var(--tap-min);
+  padding:12px 12px; color:var(--ink); font-size:16px; min-height:var(--tap-min);
 }
-.m-field textarea{ font-family:var(--font-mono); font-size:12.5px; min-height:80px; line-height:1.5; }
+.m-field textarea{ font-family:var(--font-mono); font-size:16px; min-height:80px; line-height:1.45; }
 .m-field input:focus, .m-field select:focus, .m-field textarea:focus{ outline:2px solid var(--brass-dim); outline-offset:-1px; }
 .m-row{ display:flex; gap:10px; }
 .m-row .m-field{ flex:1; min-width:0; }
@@ -191,7 +202,7 @@ button,input,select,textarea{ font-family:inherit; color:inherit; }
 .asset-tile.sel{ border-color:var(--brass); background:rgba(201,151,59,.1); }
 .asset-tile img{ width:100%; height:34px; object-fit:contain; display:block; margin-bottom:4px; }
 .asset-tile .an{ font-size:8.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#searchinput{ width:100%; background:var(--bg-alt); border:1px solid var(--line); border-radius:10px; padding:13px 14px; color:var(--ink); font-size:15px; }
+#searchinput{ width:100%; background:var(--bg-alt); border:1px solid var(--line); border-radius:10px; padding:13px 14px; color:var(--ink); font-size:16px; }
 .search-result{ padding:12px 6px; border-bottom:1px solid var(--line-soft); min-height:var(--tap-min); }
 .search-result .sid{ font-family:var(--font-mono); font-size:10.5px; color:var(--brass-bright); }
 .search-result .sname{ font-size:14px; color:var(--ink); margin-top:2px; }
@@ -207,28 +218,30 @@ button,input,select,textarea{ font-family:inherit; color:inherit; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="topbar"></div>
-  <div id="canvaswrap">
-    <div id="world">
-      <svg id="connlayer" width="1" height="1"></svg>
-      <div id="nodelayer"></div>
+<div id="viewportRoot">
+  <div id="app">
+    <div id="topbar"></div>
+    <div id="canvaswrap">
+      <div id="world">
+        <svg id="connlayer" width="1" height="1"></svg>
+        <div id="nodelayer"></div>
+      </div>
+      <div id="emptyhint"></div>
+      <div id="hud"></div>
+      <button id="fab" aria-label="NFを追加">＋</button>
+      <div id="ctxbar"></div>
     </div>
-    <div id="emptyhint"></div>
-    <div id="hud"></div>
-    <button id="fab" aria-label="NFを追加">＋</button>
-    <div id="ctxbar"></div>
   </div>
-</div>
 
-<div class="sheet-scrim" id="scrim"></div>
-<div class="sheet" id="menuSheet"></div>
-<div class="sheet" id="searchSheet"></div>
-<div class="sheet fullscreen" id="editSheet"></div>
-<div class="sheet" id="branchSheet"></div>
-<div class="sheet" id="locSheet"></div>
-<div class="sheet" id="assetSheet"></div>
-<div class="sheet" id="pickerSheet"></div>
+  <div class="sheet-scrim" id="scrim"></div>
+  <div class="sheet" id="menuSheet"></div>
+  <div class="sheet" id="searchSheet"></div>
+  <div class="sheet fullscreen" id="editSheet"></div>
+  <div class="sheet" id="branchSheet"></div>
+  <div class="sheet" id="locSheet"></div>
+  <div class="sheet" id="assetSheet"></div>
+  <div class="sheet" id="pickerSheet"></div>
+</div>
 
 <script>
 "use strict";
@@ -290,8 +303,8 @@ function escHtml(s){ return String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"
 function debounce(fn, ms){ let t; return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), ms); }; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function toSafeId(s){
-  s = (s||"").toUpperCase().trim().replace(/[^A-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-  if(!/^[A-Z_]/.test(s)) s = "F_" + s;
+  s = String(s==null ? "" : s).trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if(!/^[A-Za-z_]/.test(s)) s = "F_" + s;
   return s || "FOCUS";
 }
 function nowStamp(){ const d = new Date(); return d.toISOString().replace("T"," ").slice(0,19); }
@@ -343,7 +356,7 @@ function makeEmptyProject(){
 
 function makeFocus(overrides){
   return Object.assign({
-    id: uid("FOCUS").toUpperCase(),
+    id: uid("FOCUS"),
     icon: "GFX_goal_generic_national_focus",
     x: 0, y: 0,
     cost: 10,
@@ -695,7 +708,7 @@ function parseFocusEntry(raw, warnings, lineHint){
     }
   }
   if(!f.id){
-    f.id = uid("IMPORTED").toUpperCase();
+    f.id = uid("IMPORTED");
     warnings.push({ line: lineHint||"?", target:"(unnamed focus)", reason:"id フィールドが見つからないため自動生成しました: " + f.id });
   }
   return f;
@@ -1080,9 +1093,23 @@ const M_NODE_HALF_W = 76, M_NODE_TOP_Y = 0, M_NODE_BOTTOM_Y = 92; // anchor poin
 /* -------- keyboard-aware viewport height (keeps sheet headers/Save buttons
    visible above the on-screen keyboard on iOS/Android) -------- */
 function setupViewportUnit(){
+  const root = document.getElementById("viewportRoot");
   function update(){
-    const h = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
     document.documentElement.style.setProperty("--app-vh", h + "px");
+    // Defense in depth: on some browsers, focusing a form field still shifts
+    // the *layout* viewport to help clear the keyboard even though the page
+    // itself cannot scroll (html/body are locked above). Fixed-position UI
+    // is anchored to that layout viewport, so without this it can appear to
+    // jump upward out of view the moment typing starts. Re-anchoring the one
+    // shared root to the *visual* viewport's current offset keeps every
+    // sheet, the toolbar and the FAB exactly where the user actually sees
+    // them, every time.
+    if(vv && root) root.style.transform = (vv.offsetLeft || vv.offsetTop) ? `translate(${vv.offsetLeft}px, ${vv.offsetTop}px)` : "";
+    // Also defeat the rare case where something still manages to scroll the
+    // (supposedly unscrollable) document — snap it back immediately.
+    if(window.scrollY || window.scrollX) window.scrollTo(0,0);
   }
   update();
   if(window.visualViewport){
@@ -1090,6 +1117,7 @@ function setupViewportUnit(){
     window.visualViewport.addEventListener("scroll", update);
   }
   window.addEventListener("resize", update);
+  window.addEventListener("scroll", update, {passive:true});
   window.addEventListener("orientationchange", ()=> setTimeout(update, 60));
 }
 
@@ -1358,7 +1386,20 @@ function setupGestures(){
   wrap.addEventListener("pointerup", onPointerUp);
   wrap.addEventListener("pointercancel", onPointerUp);
 }
+// The FAB, zoom HUD and the contextual bottom bar are all rendered inside
+// #canvaswrap (so they can float over the tree), but they are UI chrome, not
+// part of the canvas gesture surface. Without this guard, a tap on any of
+// their buttons was also being interpreted as the start of a canvas pan: the
+// resulting pointerup handler would deselect/re-render and tear out that
+// very button before its native "click" had a chance to fire, which is why
+// things like the 削除/複製 shortcuts (and the FAB and zoom buttons) could
+// silently do nothing. Pointerdowns that start on this chrome are left
+// completely alone so their own ordinary click handlers run normally.
+function isCanvasChrome(target){
+  return !!(target && target.closest && target.closest("#ctxbar, #hud, #fab"));
+}
 function onPointerDown(ev){
+  if(isCanvasChrome(ev.target)) return;
   try{ ev.target.setPointerCapture && ev.target.setPointerCapture(ev.pointerId); }catch(e){}
   pointers.set(ev.pointerId, { x:ev.clientX, y:ev.clientY });
 
@@ -1435,6 +1476,11 @@ function onPointerMove(ev){
   }
 }
 function onPointerUp(ev){
+  // A pointer that was never tracked (because it started on the FAB/HUD/
+  // ctxbar and onPointerDown ignored it) must not be allowed to finalize
+  // whatever gesture happens to be left over in gestureMode/gctx from
+  // elsewhere on the canvas.
+  if(!pointers.has(ev.pointerId) && isCanvasChrome(ev.target)) return;
   clearTimeout(longPressTimer);
   const mode = gestureMode;
   pointers.delete(ev.pointerId);
